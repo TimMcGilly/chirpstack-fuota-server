@@ -1,5 +1,6 @@
 # hidden files
 .*
+!.vscode
 
 # logs
 *.log
@@ -14,3 +15,5 @@ coverage.out
 /dist
 /build
 /examples/class_c/class_c
+cmd/chirpstack-fuota-server/__debug_*
+examples/class_c/config.go

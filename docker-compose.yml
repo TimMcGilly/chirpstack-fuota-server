@@ -10,7 +10,9 @@ services:
       - postgres
     environment:
       - TEST_POSTGRES_DSN=postgres://chirpstack_fuota:chirpstack_fuota@postgres/chirpstack_fuota?sslmode=disable
-
+    ports:
+      - "8070:8070"
+      - "8090:8090"
   postgres:
     image: postgres:9.6-alpine
     environment:

@@ -10,13 +10,12 @@ import (
 	"github.com/golang/protobuf/ptypes"
 	"google.golang.org/grpc"
 
-	"github.com/brocaar/lorawan"
 	"github.com/brocaar/lorawan/applayer/multicastsetup"
 	fuota "github.com/chirpstack/chirpstack-fuota-server/v4/api/go"
 )
 
 func main() {
-	mcRootKey, err := multicastsetup.GetMcRootKeyForGenAppKey(lorawan.AES128Key{0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
+	mcRootKey, err := multicastsetup.GetMcRootKeyForGenAppKey(GenAppKey)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -32,13 +31,12 @@ func main() {
 	}
 
 	client := fuota.NewFuotaServerServiceClient(conn)
-
 	resp, err := client.CreateDeployment(context.Background(), &fuota.CreateDeploymentRequest{
 		Deployment: &fuota.Deployment{
-			ApplicationId: "d9fde0d5-bcaf-4e42-8d27-417f11628905",
+			ApplicationId: ApplicationId,
 			Devices: []*fuota.DeploymentDevice{
 				{
-					DevEui:    "090000000000000000",
+					DevEui:    DevEui1,
 					McRootKey: mcRootKey.String(),
 				},
 			},

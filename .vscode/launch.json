@@ -10,6 +10,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${fileDirname}",
+            "buildFlags" : "-buildvcs=false",
             "args": [
                 //"--help",
                 "-c=/chirpstack-fuota-server/chirpstack-fuota-server.toml"

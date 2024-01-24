@@ -48,7 +48,7 @@ func main() {
 			MulticastRegion:                   fuota.Region_EU868,
 			UnicastTimeout:                    ptypes.DurationProto(60 * time.Second),
 			UnicastAttemptCount:               1,
-			FragmentationFragmentSize:         50,
+			FragmentationFragmentSize:         32,
 			Payload:                           make([]byte, 100),
 			FragmentationRedundancy:           1,
 			FragmentationSessionIndex:         0,

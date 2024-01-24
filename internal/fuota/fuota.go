@@ -962,6 +962,7 @@ devLoop:
 				Payload: &fragmentation.FragSessionSetupReqPayload{
 					FragSession: fragmentation.FragSessionSetupReqPayloadFragSession{
 						FragIndex: d.opts.FragmentationSessionIndex,
+						McGroupBitMask: [4]bool{true, false, false, false},
 					},
 					NbFrag:   uint16(nbFrag),
 					FragSize: uint8(d.opts.FragSize),

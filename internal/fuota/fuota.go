@@ -32,9 +32,19 @@ type FragmentationSessionStatusRequestType string
 
 // RequestFragmentationSessionStatus options.
 const (
-	RequestFragmentationSessionStatusAfterFragmentEnqueue FragmentationSessionStatusRequestType = "AFTER_FRAGMENT_ENQUEUE"
-	RequestFragmentationSessionStatusAfterSessionTimeout  FragmentationSessionStatusRequestType = "AFTER_SESSION_TIMEOUT"
-	RequestFragmentationSessionStatusNoRequest            FragmentationSessionStatusRequestType = "NO_REQUEST"
+	RequestFragmentationSessionStatusAfterFragmentEnqueue        FragmentationSessionStatusRequestType = "AFTER_FRAGMENT_ENQUEUE"
+	RequestFragmentationSessionStatusAfterFragmentEnqueueNoSleep FragmentationSessionStatusRequestType = "AFTER_FRAGMENT_ENQUEUE_NO_SLEEP"
+	RequestFragmentationSessionStatusAfterSessionTimeout         FragmentationSessionStatusRequestType = "AFTER_SESSION_TIMEOUT"
+	RequestFragmentationSessionStatusNoRequest                   FragmentationSessionStatusRequestType = "NO_REQUEST"
+)
+
+// FragmentationSessionMissingRequestType type.
+type FragmentationSessionMissingRequestType string
+
+// RequestFragmentationSessionStatus options.
+const (
+	RequestFragmentationSessionMissingAfterSessionTimeout FragmentationSessionMissingRequestType = "AFTER_FRAGMENT_ENQUEUE"
+	RequestFragmentationSessionMissingNoRequest           FragmentationSessionMissingRequestType = "NO_REQUEST"
 )
 
 // Deployments defines the FUOTA deployment struct.
@@ -274,7 +284,8 @@ func (d *Deployment) Run(ctx context.Context) error {
 		d.stepMulticastClassBSessionSetup,
 		d.stepMulticastClassCSessionSetup,
 		d.stepEnqueue,
-		d.stepFragSessionStatus,
+		d.stepFragMissingReq,
+		//		d.stepFragSessionStatus,
 		d.stepWaitUntilTimeout,
 		d.stepDeleteMulticastGroup,
 	}
@@ -380,6 +391,12 @@ func (d *Deployment) handleFragmentationSessionSetupCommand(ctx context.Context,
 			return fmt.Errorf("expected *fragmentation.FragSessionStatusAnsPayload, got: %T", cmd.Payload)
 		}
 		return d.handleFragSessionStatusAns(ctx, devEUI, pl)
+	case fragmentation.FragSessionMissingAns:
+		pl, ok := cmd.Payload.(*fragmentation.FragSessionMissingAnsPayload)
+		if !ok {
+			return fmt.Errorf("expected *fragmentation.FragSessionMissingAnsPayload, got: %T", cmd.Payload)
+		}
+		return d.handleFragSessionMissingAns(ctx, devEUI, pl)
 	}
 
 	return nil
@@ -630,6 +647,67 @@ func (d *Deployment) handleMcClassCSessionAns(ctx context.Context, devEUI lorawa
 			d.multicastSessionSetupDone <- struct{}{}
 		}
 	}
+
+	return nil
+}
+
+func (d *Deployment) handleFragSessionMissingAns(ctx context.Context, devEUI lorawan.EUI64, pl *fragmentation.FragSessionMissingAnsPayload) error {
+	log.WithFields(log.Fields{
+		"deployment_id":        d.GetID(),
+		"dev_eui":              devEUI,
+		"frag_index":           pl.MissingAnsHeader.FragIndex,
+		"bitfield_start_index": pl.MissingAnsHeader.BitfieldStartIndex,
+		"nb_frag_received":     pl.ReceivedBitField,
+	}).Info("fuota: FragSessionMissingAns received")
+
+	dl := storage.DeploymentLog{
+		DeploymentID: d.GetID(),
+		DevEUI:       devEUI,
+		FPort:        fragmentation.DefaultFPort,
+		Command:      "FragSessionMissingAns",
+		Fields: hstore.Hstore{
+			Map: map[string]sql.NullString{
+				"frag_index":           sql.NullString{Valid: true, String: fmt.Sprintf("%d", pl.MissingAnsHeader.FragIndex)},
+				"bitfield_start_index": sql.NullString{Valid: true, String: fmt.Sprintf("%d", pl.MissingAnsHeader.BitfieldStartIndex)},
+			},
+		},
+	}
+	if err := storage.CreateDeploymentLog(ctx, storage.DB(), &dl); err != nil {
+		log.WithError(err).Error("fuota: create deployment log error")
+	}
+
+	// if pl.MissingAnsHeader.FragIndex == d.opts.FragmentationSessionIndex && pl.MissingFrag == 0 && !pl.Status.NotEnoughMatrixMemory {
+	// 	// update the device state
+	// 	if state, ok := d.deviceState[devEUI]; ok {
+	// 		state.setFragmentationSessionStatus(true)
+	// 	}
+
+	// 	dd, err := storage.GetDeploymentDevice(ctx, storage.DB(), d.GetID(), devEUI)
+	// 	if err != nil {
+	// 		return fmt.Errorf("get deployment device error: %w", err)
+	// 	}
+	// 	now := time.Now()
+	// 	dd.FragStatusCompletedAt = &now
+	// 	if err := storage.UpdateDeploymentDevice(ctx, storage.DB(), &dd); err != nil {
+	// 		return fmt.Errorf("update deployment device error: %w", err)
+	// 	}
+
+	// 	// if all devices have finished the frag session status, publish to done chan.
+	// 	done := true
+	// 	for _, state := range d.deviceState {
+	// 		// ignore devices that do not have the multicast-session setup
+	// 		if !state.getMulticastSessionSetup() {
+	// 			continue
+	// 		}
+
+	// 		if !state.getFragmentationSessionStatus() {
+	// 			done = false
+	// 		}
+	// 	}
+	// 	if done {
+	// 		d.fragmentationSessionStatusDone <- struct{}{}
+	// 	}
+	// }
 
 	return nil
 }
@@ -961,7 +1039,7 @@ devLoop:
 				CID: fragmentation.FragSessionSetupReq,
 				Payload: &fragmentation.FragSessionSetupReqPayload{
 					FragSession: fragmentation.FragSessionSetupReqPayloadFragSession{
-						FragIndex: d.opts.FragmentationSessionIndex,
+						FragIndex:      d.opts.FragmentationSessionIndex,
 						McGroupBitMask: [4]bool{true, false, false, false},
 					},
 					NbFrag:   uint16(nbFrag),
@@ -1196,6 +1274,7 @@ devLoop:
 			}).Info("fuota: initiate multicast class-c session setup for device")
 
 			sessionTime := uint32((gps.Time(d.sessionStartTime).TimeSinceGPSEpoch() / time.Second) % (1 << 32))
+			log.WithFields(log.Fields{"session_time:": sessionTime}).Info("Session Time")
 
 			cmd := multicastsetup.Command{
 				CID: multicastsetup.McClassCSessionReq,
@@ -1297,6 +1376,9 @@ func (d *Deployment) stepEnqueue(ctx context.Context) error {
 	// wrap the payloads into data-fragment payloads
 	var payloads [][]byte
 	for i := range fragments {
+		if i == 2 {
+			continue
+		}
 		cmd := fragmentation.Command{
 			CID: fragmentation.DataFragment,
 			Payload: &fragmentation.DataFragmentPayload{
@@ -1336,6 +1418,54 @@ func (d *Deployment) stepEnqueue(ctx context.Context) error {
 	sd.EnqueueCompletedAt = &now
 	if err := storage.UpdateDeployment(ctx, storage.DB(), &sd); err != nil {
 		return fmt.Errorf("update deployment error: %w", err)
+	}
+
+	return nil
+}
+
+func (d *Deployment) stepFragMissingReq(ctx context.Context) error {
+	// if d.opts.RequestFragmentationSessionStatus == RequestFragmentationSessionStatusAfterSessionTimeout {
+	// 	timeDiff := d.sessionEndTime.Sub(time.Now())
+	// 	if timeDiff > 0 {
+	// 		log.WithFields(log.Fields{
+	// 			"deployment_id": d.GetID(),
+	// 			"sleep_time":    timeDiff,
+	// 		}).Info("fuota: waiting for multicast-session to end for devices before sending fragmentation-missing-ans-req status request")
+	// 		time.Sleep(timeDiff)
+	// 	}
+	// }
+
+	log.WithField("deployment_id", d.GetID()).Info("fuota: starting fragmentation-missing-req for devices")
+
+	cmd := fragmentation.Command{
+		CID: fragmentation.FragSessionMissingReq,
+		Payload: &fragmentation.FragSessionMissingReqPayload{
+			FragSessionMissingReqParam: fragmentation.FragSessionMissingReqPayloadFragSessionMissingReqParam{
+				Participants: true,
+				FragIndex:    d.opts.FragmentationSessionIndex,
+			},
+		},
+	}
+
+	b, err := cmd.MarshalBinary()
+	if err != nil {
+		return fmt.Errorf("marshal binary error: %w", err)
+	}
+
+	_, err = as.MulticastGroupClient().Enqueue(ctx, &api.EnqueueMulticastGroupQueueItemRequest{
+		QueueItem: &api.MulticastGroupQueueItem{
+			MulticastGroupId: d.multicastGroupID,
+			FPort:            uint32(fragmentation.DefaultFPort),
+			Data:             b,
+		},
+	})
+
+	if err != nil {
+		log.WithError(err).WithFields(log.Fields{
+			"deployment_id":    d.GetID(),
+			"MulticastGroupId": d.multicastGroupID,
+		}).Error("fuota: enqueue payload error")
+		return fmt.Errorf("fuota: enqueue payload errorr: %w", err)
 	}
 
 	return nil
@@ -1433,7 +1563,8 @@ devLoop:
 		}
 
 		// wait until multicast-session has ended for all devices
-		if d.opts.RequestFragmentationSessionStatus != RequestFragmentationSessionStatusAfterSessionTimeout {
+		if d.opts.RequestFragmentationSessionStatus != RequestFragmentationSessionStatusAfterSessionTimeout &&
+			d.opts.RequestFragmentationSessionStatus != RequestFragmentationSessionStatusAfterFragmentEnqueueNoSleep {
 			timeDiff := d.sessionEndTime.Sub(time.Now())
 			if timeDiff > 0 {
 				log.WithFields(log.Fields{

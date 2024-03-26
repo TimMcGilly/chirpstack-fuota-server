@@ -657,7 +657,7 @@ func (d *Deployment) handleFragSessionMissingAns(ctx context.Context, devEUI lor
 		"dev_eui":              devEUI,
 		"frag_index":           pl.MissingAnsHeader.FragIndex,
 		"bitfield_start_index": pl.MissingAnsHeader.BitfieldStartIndex,
-		"nb_frag_received":     pl.ReceivedBitField,
+		"missing_bitfield":     pl.ReceivedBitField,
 	}).Info("fuota: FragSessionMissingAns received")
 
 	dl := storage.DeploymentLog{
@@ -675,6 +675,11 @@ func (d *Deployment) handleFragSessionMissingAns(ctx context.Context, devEUI lor
 	if err := storage.CreateDeploymentLog(ctx, storage.DB(), &dl); err != nil {
 		log.WithError(err).Error("fuota: create deployment log error")
 	}
+
+	padding := (d.opts.FragSize - (len(d.opts.Payload) % d.opts.FragSize)) % d.opts.FragSize
+	nbFrag := (len(d.opts.Payload) + padding) / d.opts.FragSize
+
+	d.retransmitFragments(ctx, devEUI, calculateMissingFragments(pl.ReceivedBitField, pl.MissingAnsHeader.BitfieldStartIndex, uint16(nbFrag)))
 
 	// if pl.MissingAnsHeader.FragIndex == d.opts.FragmentationSessionIndex && pl.MissingFrag == 0 && !pl.Status.NotEnoughMatrixMemory {
 	// 	// update the device state
@@ -1424,17 +1429,6 @@ func (d *Deployment) stepEnqueue(ctx context.Context) error {
 }
 
 func (d *Deployment) stepFragMissingReq(ctx context.Context) error {
-	// if d.opts.RequestFragmentationSessionStatus == RequestFragmentationSessionStatusAfterSessionTimeout {
-	// 	timeDiff := d.sessionEndTime.Sub(time.Now())
-	// 	if timeDiff > 0 {
-	// 		log.WithFields(log.Fields{
-	// 			"deployment_id": d.GetID(),
-	// 			"sleep_time":    timeDiff,
-	// 		}).Info("fuota: waiting for multicast-session to end for devices before sending fragmentation-missing-ans-req status request")
-	// 		time.Sleep(timeDiff)
-	// 	}
-	// }
-
 	log.WithField("deployment_id", d.GetID()).Info("fuota: starting fragmentation-missing-req for devices")
 
 	cmd := fragmentation.Command{
@@ -1466,6 +1460,58 @@ func (d *Deployment) stepFragMissingReq(ctx context.Context) error {
 			"MulticastGroupId": d.multicastGroupID,
 		}).Error("fuota: enqueue payload error")
 		return fmt.Errorf("fuota: enqueue payload errorr: %w", err)
+	}
+
+	return nil
+}
+
+func (d *Deployment) retransmitFragments(ctx context.Context, devEUI lorawan.EUI64, missingIndexes []uint16) error {
+	log.WithFields(log.Fields{
+		"deployment_id":   d.GetID(),
+		"dev_eui":         devEUI,
+		"missing_indexes": missingIndexes,
+	}).Info("fuota: starting retransmit")
+
+	// fragment the payload
+	padding := (d.opts.FragSize - (len(d.opts.Payload) % d.opts.FragSize)) % d.opts.FragSize
+	fragments, err := fragmentation.Encode(append(d.opts.Payload, make([]byte, padding)...), d.opts.FragSize, d.opts.Redundancy)
+	if err != nil {
+		return fmt.Errorf("fragment payload error: %w", err)
+	}
+
+	// wrap the payloads into data-fragment payloads
+	var payloads [][]byte
+	for _, i := range missingIndexes {
+		cmd := fragmentation.Command{
+			CID: fragmentation.RetransmitDataFragment,
+			Payload: &fragmentation.RetransmitDataFragmentPayload{
+				IndexAndN: fragmentation.RetransmitDataFragmentPayloadIndexAndN{
+					FragIndex: uint8(d.opts.FragmentationSessionIndex),
+					N:         uint16(i + 1),
+				},
+				Payload: fragments[i],
+			},
+		}
+
+		b, err := cmd.MarshalBinary()
+		if err != nil {
+			return fmt.Errorf("marshal binary error: %w", err)
+		}
+
+		log.WithField("N", uint16(i+1)).Info("fuota: retransmit packet created")
+
+		payloads = append(payloads, b)
+	}
+
+	// enqueue the payloads
+	for _, b := range payloads {
+		_, err = as.DeviceClient().Enqueue(ctx, &api.EnqueueDeviceQueueItemRequest{
+			QueueItem: &api.DeviceQueueItem{
+				DevEui: devEUI.String(),
+				FPort:  uint32(fragmentation.DefaultFPort),
+				Data:   b,
+			},
+		})
 	}
 
 	return nil
@@ -1596,4 +1642,22 @@ devLoop:
 	}
 
 	return nil
+}
+
+func calculateMissingFragments(missingBitField []byte, offset uint16, numOfFrags uint16) []uint16 {
+	missingIndexes := []uint16{}
+
+	for byteIndex, el := range missingBitField {
+		for i := 0; i < 8; i++ {
+			if ((el >> i) & 1) == 1 {
+				newIndex := uint16(byteIndex)*8 + uint16(i) + offset
+				if newIndex >= numOfFrags {
+					return missingIndexes
+				}
+				missingIndexes = append(missingIndexes, uint16(byteIndex)*8+uint16(i)+offset)
+			}
+		}
+	}
+
+	return missingIndexes
 }

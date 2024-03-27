@@ -679,6 +679,8 @@ func (d *Deployment) handleFragSessionMissingAns(ctx context.Context, devEUI lor
 	padding := (d.opts.FragSize - (len(d.opts.Payload) % d.opts.FragSize)) % d.opts.FragSize
 	nbFrag := (len(d.opts.Payload) + padding) / d.opts.FragSize
 
+	time.Sleep(10)
+
 	d.retransmitFragments(ctx, devEUI, calculateMissingFragments(pl.ReceivedBitField, pl.MissingAnsHeader.BitfieldStartIndex, uint16(nbFrag)))
 
 	// if pl.MissingAnsHeader.FragIndex == d.opts.FragmentationSessionIndex && pl.MissingFrag == 0 && !pl.Status.NotEnoughMatrixMemory {

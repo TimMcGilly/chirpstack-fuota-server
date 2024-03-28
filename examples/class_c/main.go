@@ -10,6 +10,8 @@ import (
 	"github.com/golang/protobuf/ptypes"
 	"google.golang.org/grpc"
 
+	"hash/crc32"
+
 	"github.com/brocaar/lorawan/applayer/multicastsetup"
 	fuota "github.com/chirpstack/chirpstack-fuota-server/v4/api/go"
 )
@@ -30,6 +32,14 @@ func main() {
 		panic(err)
 	}
 
+	payloadSize := 128
+	payload := make([]byte, payloadSize)
+	for i := 0; i < payloadSize; i++ {
+		payload[i] = byte(payloadSize + 1 - i)
+	}
+
+	fmt.Printf("checksum: %x", crc32.ChecksumIEEE(payload))
+
 	client := fuota.NewFuotaServerServiceClient(conn)
 	resp, err := client.CreateDeployment(context.Background(), &fuota.CreateDeploymentRequest{
 		Deployment: &fuota.Deployment{
@@ -37,6 +47,10 @@ func main() {
 			Devices: []*fuota.DeploymentDevice{
 				{
 					DevEui:    DevEui1,
+					McRootKey: mcRootKey.String(),
+				},
+				{
+					DevEui:    DevEui2,
 					McRootKey: mcRootKey.String(),
 				},
 			},
@@ -49,12 +63,12 @@ func main() {
 			UnicastTimeout:                    ptypes.DurationProto(60 * time.Second),
 			UnicastAttemptCount:               1,
 			FragmentationFragmentSize:         64,
-			Payload:                           make([]byte, 256),
+			Payload:                           payload,
 			FragmentationRedundancy:           0,
 			FragmentationSessionIndex:         0,
 			FragmentationMatrix:               0,
 			FragmentationBlockAckDelay:        1,
-			FragmentationDescriptor:           []byte{0, 0, 0, 0},
+			FragmentationDescriptor:           []byte{0, 0, 0, 2},
 			RequestFragmentationSessionStatus: fuota.RequestFragmentationSessionStatus_AFTER_SESSION_TIMEOUT,
 		},
 	})

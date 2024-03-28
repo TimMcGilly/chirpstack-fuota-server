@@ -16,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/brocaar/lorawan"
+	"github.com/brocaar/lorawan/applayer/firmwaremanagement"
 	"github.com/brocaar/lorawan/applayer/fragmentation"
 	"github.com/brocaar/lorawan/applayer/multicastsetup"
 	"github.com/brocaar/lorawan/gps"
@@ -285,9 +286,10 @@ func (d *Deployment) Run(ctx context.Context) error {
 		d.stepMulticastClassCSessionSetup,
 		d.stepEnqueue,
 		d.stepFragMissingReq,
-		//		d.stepFragSessionStatus,
+		d.stepFragSessionStatus,
 		d.stepWaitUntilTimeout,
 		d.stepDeleteMulticastGroup,
+		d.stepRestartDevices,
 	}
 
 	for _, f := range steps {
@@ -875,6 +877,94 @@ func (d *Deployment) stepDeleteMulticastGroup(ctx context.Context) error {
 	return nil
 }
 
+// restart all devices
+func (d *Deployment) stepRestartDevices(ctx context.Context) error {
+
+	log.WithField("deployment_id", d.GetID()).Info("fuota: starting restart for all devices")
+
+	attempt := 0
+
+	for {
+		attempt += 1
+		if attempt > d.opts.UnicastAttemptCount {
+			log.WithField("deployment_id", d.GetID()).Warning("fuota: restart reached max. number of attepts, some devices did not complete")
+			break
+		}
+
+		for devEUI := range d.opts.Devices {
+			log.WithFields(log.Fields{
+				"deployment_id": d.GetID(),
+				"dev_eui":       devEUI,
+				"attempt":       attempt,
+			}).Info("fuota: initiate restart for device")
+
+			var CountdownTime uint32 = 10
+
+			cmd := firmwaremanagement.Command{
+				CID: firmwaremanagement.DevRebootCountdownReq,
+				Payload: &firmwaremanagement.DevRebootCountdownReqPayload{
+					Countdown: CountdownTime,
+				},
+			}
+
+			b, err := cmd.MarshalBinary()
+			if err != nil {
+				return fmt.Errorf("marshal binary error: %w", err)
+			}
+
+			_, err = as.DeviceClient().Enqueue(ctx, &api.EnqueueDeviceQueueItemRequest{
+				QueueItem: &api.DeviceQueueItem{
+					DevEui: devEUI.String(),
+					FPort:  uint32(firmwaremanagement.DefaultFPort),
+					Data:   b,
+				},
+			})
+			if err != nil {
+				log.WithError(err).WithFields(log.Fields{
+					"deployment_id": d.GetID(),
+					"dev_eui":       devEUI,
+				}).Error("fuota: enqueue payload error")
+				continue
+			}
+
+			dl := storage.DeploymentLog{
+				DeploymentID: d.GetID(),
+				DevEUI:       devEUI,
+				FPort:        uint8(multicastsetup.DefaultFPort),
+				Command:      "DevRebootCountdownReq",
+				Fields: hstore.Hstore{
+					Map: map[string]sql.NullString{
+						"Countdown": sql.NullString{Valid: true, String: fmt.Sprintf("%d", CountdownTime)},
+					},
+				},
+			}
+			if err := storage.CreateDeploymentLog(ctx, storage.DB(), &dl); err != nil {
+				log.WithError(err).Error("fuota: create deployment log error")
+			}
+		}
+
+		time.Sleep(d.opts.UnicastTimeout)
+		// select {
+		// // sleep until next retry
+		// case <-time.After(d.opts.UnicastTimeout):
+		// 	continue devLoop
+		// }
+	}
+
+	sd, err := storage.GetDeployment(ctx, storage.DB(), d.GetID())
+	if err != nil {
+		return fmt.Errorf("get deployment error: %w", err)
+	}
+	now := time.Now()
+	sd.MCGroupSetupCompletedAt = &now
+	if err := storage.UpdateDeployment(ctx, storage.DB(), &sd); err != nil {
+		return fmt.Errorf("update deployment error: %w", err)
+	}
+
+	return nil
+
+}
+
 // add devices to multicast-group
 func (d *Deployment) stepAddDevicesToMulticastGroup(ctx context.Context) error {
 	log.WithField("deployment_id", d.GetID()).Info("fuota: add devices to multicast-group")
@@ -1364,7 +1454,7 @@ devLoop:
 func (d *Deployment) stepEnqueue(ctx context.Context) error {
 	log.WithField("deployment_id", d.GetID()).Info("fuota: starting multicast enqueue")
 
-	timeDiff := d.sessionStartTime.Sub(time.Now())
+	timeDiff := d.sessionStartTime.Sub(time.Now()) + (10 * time.Second)
 	if timeDiff > 0 {
 		log.WithFields(log.Fields{
 			"deployment_id": d.GetID(),

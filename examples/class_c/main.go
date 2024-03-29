@@ -32,7 +32,7 @@ func main() {
 		panic(err)
 	}
 
-	payloadSize := 128
+	payloadSize := 256
 	payload := make([]byte, payloadSize)
 	for i := 0; i < payloadSize; i++ {
 		payload[i] = byte(payloadSize + 1 - i)
@@ -40,20 +40,20 @@ func main() {
 
 	fmt.Printf("checksum: %x", crc32.ChecksumIEEE(payload))
 
+	devices := make([]*fuota.DeploymentDevice, 0)
+
+	for _, DevEui := range DevEuis {
+		devices = append(devices, &fuota.DeploymentDevice{
+			DevEui:    DevEui,
+			McRootKey: mcRootKey.String(),
+		})
+	}
+
 	client := fuota.NewFuotaServerServiceClient(conn)
 	resp, err := client.CreateDeployment(context.Background(), &fuota.CreateDeploymentRequest{
 		Deployment: &fuota.Deployment{
-			ApplicationId: ApplicationId,
-			Devices: []*fuota.DeploymentDevice{
-				{
-					DevEui:    DevEui1,
-					McRootKey: mcRootKey.String(),
-				},
-				{
-					DevEui:    DevEui2,
-					McRootKey: mcRootKey.String(),
-				},
-			},
+			ApplicationId:                     ApplicationId,
+			Devices:                           devices,
 			MulticastGroupType:                fuota.MulticastGroupType_CLASS_C,
 			MulticastDr:                       3,
 			MulticastFrequency:                868300000,
@@ -68,7 +68,7 @@ func main() {
 			FragmentationSessionIndex:         0,
 			FragmentationMatrix:               0,
 			FragmentationBlockAckDelay:        1,
-			FragmentationDescriptor:           []byte{0, 0, 0, 2},
+			FragmentationDescriptor:           []byte{3, 0, 0, 0},
 			RequestFragmentationSessionStatus: fuota.RequestFragmentationSessionStatus_AFTER_SESSION_TIMEOUT,
 		},
 	})

@@ -1473,9 +1473,6 @@ func (d *Deployment) stepEnqueue(ctx context.Context) error {
 	// wrap the payloads into data-fragment payloads
 	var payloads [][]byte
 	for i := range fragments {
-		if i == 2 {
-			continue
-		}
 		cmd := fragmentation.Command{
 			CID: fragmentation.DataFragment,
 			Payload: &fragmentation.DataFragmentPayload{

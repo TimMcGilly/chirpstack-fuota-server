@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"sort"
 	"sync"
 	"time"
 
@@ -28,6 +29,9 @@ import (
 	"github.com/chirpstack/chirpstack/api/go/v4/common"
 	"github.com/chirpstack/chirpstack/api/go/v4/integration"
 )
+
+// Time between missing ans messages
+const TimeBetweenMissingAns = time.Duration(4 * float64(time.Second))
 
 // FragmentationSessionStatusRequestType type.
 type FragmentationSessionStatusRequestType string
@@ -77,6 +81,9 @@ type Deployment struct {
 
 	// channel for fragmentation-session status
 	fragmentationSessionStatusDone chan struct{}
+
+	// channel set when any missingAns is recieved
+	anyMissingAnsRecieved chan struct{}
 
 	// channel for all missing-ans recieved
 	missingAnsDone chan struct{}
@@ -133,13 +140,6 @@ type DeploymentOptions struct {
 	// The number of attempts before considering an unicast command
 	// to be failed.
 	UnicastAttemptCount int
-
-	// MissingAnsTimeout
-	// Set this to value of max length before first MissingAns from all devices
-	FirstMissingAnsTimeout time.Duration
-
-	// Time between MissingAns
-	TimeBetweenMissingAns time.Duration
 
 	// FragSize defines the max size for each payload fragment.
 	FragSize int
@@ -288,6 +288,7 @@ func NewDeployment(opts DeploymentOptions) (*Deployment, error) {
 		multicastSessionSetupDone:      make(chan struct{}),
 		fragmentationSessionStatusDone: make(chan struct{}),
 		missingAnsDone:                 make(chan struct{}),
+		anyMissingAnsRecieved:          make(chan struct{}),
 	}
 
 	if err := storage.Transaction(func(tx sqlx.Ext) error {
@@ -335,7 +336,7 @@ func (d *Deployment) Run(ctx context.Context) error {
 		d.stepFragmentationSessionSetup,
 		d.stepMulticastClassBSessionSetup,
 		d.stepMulticastClassCSessionSetup,
-		//		d.stepEnqueue,
+		d.stepEnqueue,
 		d.stepFragMissingReq,
 		d.stepRetransmitFragments,
 		d.stepFragSessionStatus,
@@ -709,8 +710,15 @@ func (d *Deployment) handleFragSessionMissingAns(ctx context.Context, devEUI lor
 
 	// Clear done if set by another prematurley
 	select {
-	case _ = <-d.missingAnsDone:
+	case <-d.missingAnsDone:
 		break
+	default:
+		break
+	}
+
+	// Set inital anyMissingAns to start timer
+	select {
+	case d.anyMissingAnsRecieved <- struct{}{}:
 	default:
 		break
 	}
@@ -733,7 +741,7 @@ func (d *Deployment) handleFragSessionMissingAns(ctx context.Context, devEUI lor
 			Map: map[string]sql.NullString{
 				"frag_index":           sql.NullString{Valid: true, String: fmt.Sprintf("%d", pl.MissingAnsHeader.FragIndex)},
 				"bitfield_start_index": sql.NullString{Valid: true, String: fmt.Sprintf("%d", pl.MissingAnsHeader.BitfieldStartIndex)},
-				"missing_bitfield":     sql.NullString{Valid: true, String: fmt.Sprintf("%s", pl.ReceivedBitField)},
+				"missing_bitfield":     sql.NullString{Valid: true, String: fmt.Sprintf("%x", pl.ReceivedBitField)},
 			},
 		},
 	}
@@ -1646,10 +1654,24 @@ func (d *Deployment) stepFragMissingReq(ctx context.Context) error {
 		return fmt.Errorf("fuota: enqueue payload errorr: %w", err)
 	}
 
-	delay := math.Pow(2, float64(d.opts.BlockAckDelay+4))
-	time.Sleep(time.Duration(time.Duration(delay) + d.opts.TimeBetweenMissingAns))
+	// Needed as multicast message may not be scheduled for awhile
+	select {
+	case <-time.After(d.sessionEndTime.Sub(time.Now())):
+		break
+	case <-d.anyMissingAnsRecieved:
+		log.WithField("deployment_id", d.GetID()).Info("fuota: fragmentation-missingAns recieved first missingAns")
+		break
+	}
 
-	maxNumMissingAns := uint8(0)
+	blockDelay := math.Pow(2, float64(d.opts.BlockAckDelay+4))
+	delay := time.Duration(blockDelay*float64(time.Second)) + TimeBetweenMissingAns
+	log.WithFields(log.Fields{
+		"deployment_id": d.GetID(),
+		"sleep_time":    delay,
+	}).Info("fuota: missing ans first sleep")
+	time.Sleep(delay)
+
+	maxNumMissingAns := uint8(1)
 
 	for devEUI := range d.opts.Devices {
 		// ignore devices that do not have the multicast-session setup
@@ -1664,12 +1686,17 @@ func (d *Deployment) stepFragMissingReq(ctx context.Context) error {
 		}
 	}
 
+	missingAnsTimeout := TimeBetweenMissingAns * time.Duration(maxNumMissingAns-1)
+	log.WithFields(log.Fields{
+		"deployment_id": d.GetID(),
+		"sleep_time":    missingAnsTimeout,
+	}).Info("fuota: missingAnsTimeout sleep started")
+
 	select {
-	// sleep until next retry
-	case <-time.After(d.opts.TimeBetweenMissingAns * time.Duration(maxNumMissingAns-1)):
+	case <-time.After(missingAnsTimeout):
 		break
-	case <-d.fragmentationSessionStatusDone:
-		log.WithField("deployment_id", d.GetID()).Info("fuota: fragmentation-session status request completed successful for all devices")
+	case <-d.missingAnsDone:
+		log.WithField("deployment_id", d.GetID()).Info("fuota: fragmentation-missingAns status request complete for sending devices")
 		break
 	}
 
@@ -1688,6 +1715,13 @@ func (d *Deployment) stepRetransmitFragments(ctx context.Context) error {
 		}
 	}
 
+	missingIndicies := []uint16{}
+	for missingIndex, _ := range missingIndicesSet {
+		missingIndicies = append(missingIndicies, missingIndex)
+	}
+
+	sort.Slice(missingIndicies, func(i, j int) bool { return missingIndicies[i] < missingIndicies[j] })
+
 	// fragment the payload
 	padding := (d.opts.FragSize - (len(d.opts.Payload) % d.opts.FragSize)) % d.opts.FragSize
 	fragments, err := fragmentation.Encode(append(d.opts.Payload, make([]byte, padding)...), d.opts.FragSize, d.opts.Redundancy)
@@ -1697,7 +1731,7 @@ func (d *Deployment) stepRetransmitFragments(ctx context.Context) error {
 
 	// wrap the payloads into data-fragment payloads
 	var payloads [][]byte
-	for missingIndex, _ := range missingIndicesSet {
+	for _, missingIndex := range missingIndicies {
 		cmd := fragmentation.Command{
 			CID: fragmentation.RetransmitDataFragment,
 			Payload: &fragmentation.RetransmitDataFragmentPayload{

@@ -32,7 +32,7 @@ func main() {
 		panic(err)
 	}
 
-	payloadSize := 80000
+	payloadSize := 640
 	payload := make([]byte, payloadSize)
 	for i := 0; i < payloadSize; i++ {
 		payload[i] = byte(payloadSize + 1 - i)
@@ -62,10 +62,9 @@ func main() {
 			MulticastRegion:                   fuota.Region_EU868,
 			UnicastTimeout:                    ptypes.DurationProto(60 * time.Second),
 			UnicastAttemptCount:               1,
-			TimeBetweenMissingAns:             ptypes.DurationProto(3 * time.Second),
 			FragmentationFragmentSize:         64,
 			Payload:                           payload,
-			FragmentationRedundancy:           16,
+			FragmentationRedundancy:           0,
 			FragmentationSessionIndex:         0,
 			FragmentationMatrix:               0,
 			FragmentationBlockAckDelay:        1,

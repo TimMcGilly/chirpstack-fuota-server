@@ -32,7 +32,7 @@ func main() {
 		panic(err)
 	}
 
-	payloadSize := 256
+	payloadSize := 80000
 	payload := make([]byte, payloadSize)
 	for i := 0; i < payloadSize; i++ {
 		payload[i] = byte(payloadSize + 1 - i)
@@ -55,20 +55,21 @@ func main() {
 			ApplicationId:                     ApplicationId,
 			Devices:                           devices,
 			MulticastGroupType:                fuota.MulticastGroupType_CLASS_C,
-			MulticastDr:                       3,
+			MulticastDr:                       5,
 			MulticastFrequency:                868300000,
 			MulticastGroupId:                  0,
-			MulticastTimeout:                  9,
+			MulticastTimeout:                  11,
 			MulticastRegion:                   fuota.Region_EU868,
 			UnicastTimeout:                    ptypes.DurationProto(60 * time.Second),
 			UnicastAttemptCount:               1,
+			TimeBetweenMissingAns:             ptypes.DurationProto(3 * time.Second),
 			FragmentationFragmentSize:         64,
 			Payload:                           payload,
-			FragmentationRedundancy:           0,
+			FragmentationRedundancy:           16,
 			FragmentationSessionIndex:         0,
 			FragmentationMatrix:               0,
 			FragmentationBlockAckDelay:        1,
-			FragmentationDescriptor:           []byte{3, 0, 0, 0},
+			FragmentationDescriptor:           []byte{15, 0, 0, 0},
 			RequestFragmentationSessionStatus: fuota.RequestFragmentationSessionStatus_AFTER_SESSION_TIMEOUT,
 		},
 	})

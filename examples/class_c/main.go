@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -32,7 +33,7 @@ func main() {
 		panic(err)
 	}
 
-	payloadSize := 640
+	payloadSize := 320
 	payload := make([]byte, payloadSize)
 	for i := 0; i < payloadSize; i++ {
 		payload[i] = byte(payloadSize + 1 - i)
@@ -49,6 +50,8 @@ func main() {
 		})
 	}
 
+	fragmentationDescriptor := []byte{15, 0, 0, 0}
+
 	client := fuota.NewFuotaServerServiceClient(conn)
 	resp, err := client.CreateDeployment(context.Background(), &fuota.CreateDeploymentRequest{
 		Deployment: &fuota.Deployment{
@@ -58,7 +61,7 @@ func main() {
 			MulticastDr:                       5,
 			MulticastFrequency:                868300000,
 			MulticastGroupId:                  0,
-			MulticastTimeout:                  11,
+			MulticastTimeout:                  8,
 			MulticastRegion:                   fuota.Region_EU868,
 			UnicastTimeout:                    ptypes.DurationProto(60 * time.Second),
 			UnicastAttemptCount:               1,
@@ -69,7 +72,7 @@ func main() {
 			FragmentationSessionIndex:         0,
 			FragmentationMatrix:               0,
 			FragmentationBlockAckDelay:        1,
-			FragmentationDescriptor:           []byte{15, 0, 0, 0},
+			FragmentationDescriptor:           fragmentationDescriptor,
 			RequestFragmentationSessionStatus: fuota.RequestFragmentationSessionStatus_AFTER_SESSION_TIMEOUT,
 		},
 	})
@@ -81,4 +84,10 @@ func main() {
 	copy(id[:], resp.GetId())
 
 	fmt.Printf("deployment created: %s\n", id)
+	deploymentId := fmt.Sprintf("%s", id)
+
+	err = os.WriteFile(deploymentId+".json", []byte("{\"\": \""+deploymentId+"\", \"fragmentationDescriptor\": \""+fmt.Sprintf("%v", fragmentationDescriptor)+"\"}"), 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	randGo "math/rand"
 	"sort"
 	"sync"
 	"time"
@@ -1078,7 +1079,9 @@ devLoop:
 				"attempt":       attempt,
 			}).Info("fuota: initiate restart for device")
 
-			var CountdownTime uint32 = 10
+			CountdownMin := 3
+			CountdownMax := 30
+			CountdownTime := uint32(randGo.Intn(CountdownMax-CountdownMin) + CountdownMin)
 
 			cmd := firmwaremanagement.Command{
 				CID: firmwaremanagement.DevRebootCountdownReq,

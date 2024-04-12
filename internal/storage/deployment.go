@@ -12,14 +12,16 @@ import (
 
 // Deployment represents a FUOTA deployment.
 type Deployment struct {
-	ID                          uuid.UUID  `db:"id"`
-	CreatedAt                   time.Time  `db:"created_at"`
-	UpdatedAt                   time.Time  `db:"updated_at"`
-	MCGroupSetupCompletedAt     *time.Time `db:"mc_group_setup_completed_at"`
-	MCSessionCompletedAt        *time.Time `db:"mc_session_completed_at"`
-	FragSessionSetupCompletedAt *time.Time `db:"frag_session_setup_completed_at"`
-	EnqueueCompletedAt          *time.Time `db:"enqueue_completed_at"`
-	FragStatusCompletedAt       *time.Time `db:"frag_status_completed_at"`
+	ID                            uuid.UUID  `db:"id"`
+	CreatedAt                     time.Time  `db:"created_at"`
+	UpdatedAt                     time.Time  `db:"updated_at"`
+	MCGroupSetupCompletedAt       *time.Time `db:"mc_group_setup_completed_at"`
+	MCSessionCompletedAt          *time.Time `db:"mc_session_completed_at"`
+	FragSessionSetupCompletedAt   *time.Time `db:"frag_session_setup_completed_at"`
+	EnqueueCompletedAt            *time.Time `db:"enqueue_completed_at"`
+	FragStatusCompletedAt         *time.Time `db:"frag_status_completed_at"`
+	FragSessionMissingCompletedAt *time.Time `db:"frag_session_missing_completed_at"`
+	RetransmitsCompletedAt        *time.Time `db:"retransmits_completed_at"`
 }
 
 // CreateDeployment creates the given Deployment.
@@ -46,8 +48,10 @@ func CreateDeployment(ctx context.Context, db sqlx.Execer, d *Deployment) error 
 			mc_session_completed_at,
 			frag_session_setup_completed_at,
 			enqueue_completed_at,
-			frag_status_completed_at
-		) values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			frag_status_completed_at,
+			frag_session_missing_completed_at,
+			retransmits_completed_at
+		) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		d.ID,
 		d.CreatedAt,
 		d.UpdatedAt,
@@ -56,6 +60,8 @@ func CreateDeployment(ctx context.Context, db sqlx.Execer, d *Deployment) error 
 		d.FragSessionSetupCompletedAt,
 		d.EnqueueCompletedAt,
 		d.FragStatusCompletedAt,
+		d.FragSessionMissingCompletedAt,
+		d.RetransmitsCompletedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("sql exec error: %w", err)
@@ -90,7 +96,9 @@ func UpdateDeployment(ctx context.Context, db sqlx.Execer, d *Deployment) error 
 			mc_session_completed_at = $4,
 			frag_session_setup_completed_at = $5,
 			enqueue_completed_at = $6,
-			frag_status_completed_at = $7
+			frag_status_completed_at = $7,
+			frag_session_missing_completed_at = $8,
+			retransmits_completed_at = $9
 		where
 			id = $1`,
 		d.ID,
@@ -100,6 +108,8 @@ func UpdateDeployment(ctx context.Context, db sqlx.Execer, d *Deployment) error 
 		d.FragSessionSetupCompletedAt,
 		d.EnqueueCompletedAt,
 		d.FragStatusCompletedAt,
+		d.FragSessionMissingCompletedAt,
+		d.RetransmitsCompletedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("sql update error: %w", err)

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -46,6 +47,8 @@ func (ts *StorageTestSuite) TestDeploymentDevice() {
 			dd.MCSessionCompletedAt = &now
 			dd.FragSessionSetupCompletedAt = &now
 			dd.FragStatusCompletedAt = &now
+			dd.AllMissingAnsReceived = &now
+			dd.MissingIndices = fmt.Sprintf("%v", []uint16{1, 2, 3})
 
 			assert.NoError(UpdateDeploymentDevice(context.Background(), ts.Tx(), &dd))
 
@@ -56,6 +59,8 @@ func (ts *StorageTestSuite) TestDeploymentDevice() {
 			assert.True(ddGet.MCSessionCompletedAt.Equal(now))
 			assert.True(ddGet.FragSessionSetupCompletedAt.Equal(now))
 			assert.True(ddGet.FragStatusCompletedAt.Equal(now))
+			assert.True(ddGet.AllMissingAnsReceived.Equal(now))
+			assert.True(ddGet.MissingIndices == fmt.Sprintf("%v", []uint16{1, 2, 3}))
 		})
 
 		t.Run("GetDeploymentDevices", func(t *testing.T) {

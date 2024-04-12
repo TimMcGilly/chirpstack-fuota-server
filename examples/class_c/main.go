@@ -39,7 +39,7 @@ func main() {
 		payload[i] = byte(payloadSize + 1 - i)
 	}
 
-	fmt.Printf("checksum: %x", crc32.ChecksumIEEE(payload))
+	fmt.Printf("checksum: %x\n", crc32.ChecksumIEEE(payload))
 
 	devices := make([]*fuota.DeploymentDevice, 0)
 
@@ -83,10 +83,11 @@ func main() {
 	var id uuid.UUID
 	copy(id[:], resp.GetId())
 
-	fmt.Printf("deployment created: %s\n", id)
-	deploymentId := fmt.Sprintf("%s", id)
+	fmt.Printf("deployment created: %s\n", resp.GetId())
 
-	err = os.WriteFile(deploymentId+"-descriptor.json", []byte("{\"\": \""+deploymentId+"\", \"fragmentationDescriptor\": \""+fmt.Sprintf("%v", fragmentationDescriptor)+"\"}"), 0644)
+	deploymentId := resp.GetId()
+
+	err = os.WriteFile(deploymentId+"-descriptor.json", []byte("{\"deploymentId\": \""+deploymentId+"\", \"fragmentationDescriptor\": \""+fmt.Sprintf("%v", fragmentationDescriptor)+"\"}"), 0644)
 	if err != nil {
 		log.Fatal(err)
 	}

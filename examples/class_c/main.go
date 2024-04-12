@@ -86,7 +86,7 @@ func main() {
 	fmt.Printf("deployment created: %s\n", id)
 	deploymentId := fmt.Sprintf("%s", id)
 
-	err = os.WriteFile(deploymentId+".json", []byte("{\"\": \""+deploymentId+"\", \"fragmentationDescriptor\": \""+fmt.Sprintf("%v", fragmentationDescriptor)+"\"}"), 0644)
+	err = os.WriteFile(deploymentId+"-descriptor.json", []byte("{\"\": \""+deploymentId+"\", \"fragmentationDescriptor\": \""+fmt.Sprintf("%v", fragmentationDescriptor)+"\"}"), 0644)
 	if err != nil {
 		log.Fatal(err)
 	}

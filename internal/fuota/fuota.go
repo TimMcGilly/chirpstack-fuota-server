@@ -306,6 +306,7 @@ func NewDeployment(opts DeploymentOptions) (*Deployment, error) {
 		fragmentationSessionStatusDone: make(chan struct{}),
 		missingAnsDone:                 make(chan struct{}),
 		anyMissingAnsRecieved:          make(chan struct{}),
+		firmwareRestartDone:            make(chan struct{}),
 	}
 
 	if err := storage.Transaction(func(tx sqlx.Ext) error {
@@ -489,7 +490,7 @@ func (d *Deployment) handleFirmwareManagementCommands(ctx context.Context, devEU
 		"deployment_id": d.GetID(),
 		"dev_eui":       devEUI,
 		"cid":           cmd.CID,
-	}).Info("fuota: fragmentation-session setup command received")
+	}).Info("fuota: firmware-management command received")
 
 	switch cmd.CID {
 	case firmwaremanagement.DevRebootCountdownAns:
@@ -951,11 +952,6 @@ func (d *Deployment) handleFirmwareManagementRebootCountdown(ctx context.Context
 		// if all devices have finished the frag session status, publish to done chan.
 		done := true
 		for _, state := range d.deviceState {
-			// ignore devices that do not have the multicast-session setup
-			if !state.getMulticastSessionSetup() {
-				continue
-			}
-
 			if !state.getRestartCountdownAns() {
 				done = false
 			}

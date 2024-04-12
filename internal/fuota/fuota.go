@@ -85,6 +85,9 @@ type Deployment struct {
 	// channel for all missing-ans recieved
 	missingAnsDone chan struct{}
 
+	// channel for firmwareRestart
+	firmwareRestartDone chan struct{}
+
 	// session start time
 	// this is set by the multicast-session setup function
 	sessionStartTime time.Time
@@ -186,6 +189,7 @@ type deviceState struct {
 	numMissingAnsExpected      uint8
 	numMissingAnsRecieved      uint8
 	missingIndicies            []uint16
+	restartCountdownAns        bool
 }
 
 func (d *deviceState) getMulticastSetup() bool {
@@ -270,6 +274,18 @@ func (d *deviceState) getMissingIndicies() []uint16 {
 	d.RLock()
 	defer d.RUnlock()
 	return d.missingIndicies
+}
+
+func (d *deviceState) setRestartCountdownAns(done bool) {
+	d.Lock()
+	defer d.Unlock()
+	d.restartCountdownAns = done
+}
+
+func (d *deviceState) getRestartCountdownAns() bool {
+	d.RLock()
+	defer d.RUnlock()
+	return d.restartCountdownAns
 }
 
 // NewDeployment creates a new Deployment.
@@ -373,6 +389,10 @@ func (d *Deployment) HandleUplinkEvent(ctx context.Context, pl integration.Uplin
 		if err := d.handleFragmentationSessionSetupCommand(ctx, devEUI, pl.Data); err != nil {
 			return fmt.Errorf("handle fragmentation-session setup command error: %w", err)
 		}
+	} else if uint8(pl.FPort) == firmwaremanagement.DefaultFPort && found {
+		if err := d.handleFirmwareManagementCommands(ctx, devEUI, pl.Data); err != nil {
+			return fmt.Errorf("handle firmware management command error: %w", err)
+		}
 	} else {
 		log.WithFields(log.Fields{
 			"deployment_id": d.id,
@@ -453,6 +473,31 @@ func (d *Deployment) handleFragmentationSessionSetupCommand(ctx context.Context,
 			return fmt.Errorf("expected *fragmentation.FragSessionMissingAnsPayload, got: %T", cmd.Payload)
 		}
 		return d.handleFragSessionMissingAns(ctx, devEUI, pl)
+	}
+
+	return nil
+}
+
+// handleFirmwareManagementCommands handles an uplink firmware-managment command.
+func (d *Deployment) handleFirmwareManagementCommands(ctx context.Context, devEUI lorawan.EUI64, b []byte) error {
+	var cmd firmwaremanagement.Command
+	if err := cmd.UnmarshalBinary(true, b); err != nil {
+		return fmt.Errorf("unmarshal command error: %w", err)
+	}
+
+	log.WithFields(log.Fields{
+		"deployment_id": d.GetID(),
+		"dev_eui":       devEUI,
+		"cid":           cmd.CID,
+	}).Info("fuota: fragmentation-session setup command received")
+
+	switch cmd.CID {
+	case firmwaremanagement.DevRebootCountdownAns:
+		pl, ok := cmd.Payload.(*firmwaremanagement.DevRebootCountdownAnsPayload)
+		if !ok {
+			return fmt.Errorf("expected *fragmentation.FragSessionMissingAnsPayload*firmwaremanagement.DevRebootCountdownAnsPayload, got: %T", cmd.Payload)
+		}
+		return d.handleFirmwareManagementRebootCountdown(ctx, devEUI, pl)
 	}
 
 	return nil
@@ -864,6 +909,65 @@ func (d *Deployment) handleFragSessionStatusAns(ctx context.Context, devEUI lora
 	return nil
 }
 
+func (d *Deployment) handleFirmwareManagementRebootCountdown(ctx context.Context, devEUI lorawan.EUI64, pl *firmwaremanagement.DevRebootCountdownAnsPayload) error {
+	log.WithFields(log.Fields{
+		"deployment_id": d.GetID(),
+		"dev_eui":       devEUI,
+		"countdown":     pl.Countdown,
+	}).Info("fuota: DevRebootCountdownAnsPayload received")
+
+	dl := storage.DeploymentLog{
+		DeploymentID: d.GetID(),
+		DevEUI:       devEUI,
+		FPort:        firmwaremanagement.DefaultFPort,
+		Command:      "DevRebootCountdownAnsPayload",
+		Fields: hstore.Hstore{
+			Map: map[string]sql.NullString{
+				"frag_index": sql.NullString{Valid: true, String: fmt.Sprintf("%d", pl.Countdown)},
+			},
+		},
+	}
+	if err := storage.CreateDeploymentLog(ctx, storage.DB(), &dl); err != nil {
+		log.WithError(err).Error("fuota: create deployment log error")
+	}
+
+	// Reboot didn't fail
+	if pl.Countdown != 0 {
+		// update the device state
+		if state, ok := d.deviceState[devEUI]; ok {
+			state.setRestartCountdownAns(true)
+		}
+
+		dd, err := storage.GetDeploymentDevice(ctx, storage.DB(), d.GetID(), devEUI)
+		if err != nil {
+			return fmt.Errorf("get deployment device error: %w", err)
+		}
+		now := time.Now()
+		dd.RestartCompletedAt = &now
+		if err := storage.UpdateDeploymentDevice(ctx, storage.DB(), &dd); err != nil {
+			return fmt.Errorf("update deployment device error: %w", err)
+		}
+
+		// if all devices have finished the frag session status, publish to done chan.
+		done := true
+		for _, state := range d.deviceState {
+			// ignore devices that do not have the multicast-session setup
+			if !state.getMulticastSessionSetup() {
+				continue
+			}
+
+			if !state.getRestartCountdownAns() {
+				done = false
+			}
+		}
+		if done {
+			d.firmwareRestartDone <- struct{}{}
+		}
+	}
+
+	return nil
+}
+
 // create multicast group step
 func (d *Deployment) stepCreateMulticastGroup(ctx context.Context) error {
 	log.WithField("deployment_id", d.GetID()).Debug("fuota: stepCreateMulticastGroup funtion called")
@@ -963,6 +1067,7 @@ func (d *Deployment) stepRestartDevices(ctx context.Context) error {
 
 	attempt := 0
 
+devLoop:
 	for {
 		attempt += 1
 		if attempt > d.opts.UnicastAttemptCount {
@@ -1021,13 +1126,15 @@ func (d *Deployment) stepRestartDevices(ctx context.Context) error {
 				log.WithError(err).Error("fuota: create deployment log error")
 			}
 		}
-
-		time.Sleep(d.opts.UnicastTimeout)
-		// select {
-		// // sleep until next retry
-		// case <-time.After(d.opts.UnicastTimeout):
-		// 	continue devLoop
-		// }
+		select {
+		// sleep until next retry
+		case <-time.After(d.opts.UnicastTimeout):
+			continue devLoop
+		// terminate when all devices have been setup
+		case <-d.firmwareRestartDone:
+			log.WithField("deployment_id", d.GetID()).Info("fuota: restart completed successful for all devices")
+			break devLoop
+		}
 	}
 
 	sd, err := storage.GetDeployment(ctx, storage.DB(), d.GetID())
@@ -1035,7 +1142,7 @@ func (d *Deployment) stepRestartDevices(ctx context.Context) error {
 		return fmt.Errorf("get deployment error: %w", err)
 	}
 	now := time.Now()
-	sd.MCGroupSetupCompletedAt = &now
+	sd.RestartCompletedAt = &now
 	if err := storage.UpdateDeployment(ctx, storage.DB(), &sd); err != nil {
 		return fmt.Errorf("update deployment error: %w", err)
 	}

@@ -752,15 +752,6 @@ func (d *Deployment) handleFragSessionMissingAns(ctx context.Context, devEUI lor
 	padding := (d.opts.FragSize - (len(d.opts.Payload) % d.opts.FragSize)) % d.opts.FragSize
 	nbFrag := (len(d.opts.Payload) + padding) / d.opts.FragSize
 
-	//const timeBetweenMissingAns = 3000000000
-	//sleepTime := time.Duration((timeBetweenMissingAns * nbFrag / 8 / len(pl.ReceivedBitField)))
-	//time.Sleep(sleepTime)
-	//log.Info("Finished sleep")
-
-	//nbMissingMessage := uint16(nbFrag / 8 / len(pl.ReceivedBitField))
-	//indexFinalFrag := nbMissingMessage * uint16(len(pl.ReceivedBitField)) * 8
-	//log.Info("Index final frag", indexFinalFrag)
-
 	state, ok := d.deviceState[devEUI]
 
 	if ok {
@@ -792,25 +783,18 @@ func (d *Deployment) handleFragSessionMissingAns(ctx context.Context, devEUI lor
 
 	if done {
 		d.missingAnsDone <- struct{}{}
+
+		dd, err := storage.GetDeploymentDevice(ctx, storage.DB(), d.GetID(), devEUI)
+		if err != nil {
+			return fmt.Errorf("get deployment device error: %w", err)
+		}
+		now := time.Now()
+		dd.AllMissingAnsReceived = &now
+		dd.MissingIndices = fmt.Sprintf("%v", d.deviceState[devEUI].getMissingIndicies())
+		if err := storage.UpdateDeploymentDevice(ctx, storage.DB(), &dd); err != nil {
+			return fmt.Errorf("update deployment device error: %w", err)
+		}
 	}
-
-	//d.retransmitFragments(ctx, devEUI, calculateMissingFragments(pl.ReceivedBitField, pl.MissingAnsHeader.BitfieldStartIndex, uint16(nbFrag)))
-
-	// if pl.MissingAnsHeader.FragIndex == d.opts.FragmentationSessionIndex && pl.MissingFrag == 0 && !pl.Status.NotEnoughMatrixMemory {
-	// 	// update the device state
-	// 	if state, ok := d.deviceState[devEUI]; ok {
-	// 		state.setFragmentationSessionStatus(true)
-	// 	}
-
-	// 	dd, err := storage.GetDeploymentDevice(ctx, storage.DB(), d.GetID(), devEUI)
-	// 	if err != nil {
-	// 		return fmt.Errorf("get deployment device error: %w", err)
-	// 	}
-	// 	now := time.Now()
-	// 	dd.FragStatusCompletedAt = &now
-	// 	if err := storage.UpdateDeploymentDevice(ctx, storage.DB(), &dd); err != nil {
-	// 		return fmt.Errorf("update deployment device error: %w", err)
-	// 	}
 
 	return nil
 }
@@ -1700,6 +1684,16 @@ func (d *Deployment) stepFragMissingReq(ctx context.Context) error {
 		break
 	}
 
+	sd, err := storage.GetDeployment(ctx, storage.DB(), d.GetID())
+	if err != nil {
+		return fmt.Errorf("get deployment error: %w", err)
+	}
+	now := time.Now()
+	sd.FragSessionMissingCompletedAt = &now
+	if err := storage.UpdateDeployment(ctx, storage.DB(), &sd); err != nil {
+		return fmt.Errorf("update deployment error: %w", err)
+	}
+
 	return nil
 }
 
@@ -1764,15 +1758,15 @@ func (d *Deployment) stepRetransmitFragments(ctx context.Context) error {
 		})
 	}
 
-	// sd, err := storage.GetDeployment(ctx, storage.DB(), d.GetID())
-	// if err != nil {
-	// 	return fmt.Errorf("get deployment error: %w", err)
-	// }
-	// now := time.Now()
-	// sd.EnqueueCompletedAt = &now
-	// if err := storage.UpdateDeployment(ctx, storage.DB(), &sd); err != nil {
-	// 	return fmt.Errorf("update deployment error: %w", err)
-	// }
+	sd, err := storage.GetDeployment(ctx, storage.DB(), d.GetID())
+	if err != nil {
+		return fmt.Errorf("get deployment error: %w", err)
+	}
+	now := time.Now()
+	sd.RetransmitsCompletedAt = &now
+	if err := storage.UpdateDeployment(ctx, storage.DB(), &sd); err != nil {
+		return fmt.Errorf("update deployment error: %w", err)
+	}
 
 	return nil
 }

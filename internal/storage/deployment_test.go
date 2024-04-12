@@ -38,6 +38,7 @@ func (ts *StorageTestSuite) TestDeployment() {
 			assert.Nil(dGet.FragStatusCompletedAt)
 			assert.Nil(dGet.FragSessionMissingCompletedAt)
 			assert.Nil(dGet.RetransmitsCompletedAt)
+			assert.Nil(dGet.RestartCompletedAt)
 		})
 
 		t.Run("Update", func(t *testing.T) {
@@ -51,6 +52,7 @@ func (ts *StorageTestSuite) TestDeployment() {
 			d.FragStatusCompletedAt = &now
 			d.FragSessionMissingCompletedAt = &now
 			d.RetransmitsCompletedAt = &now
+			d.RestartCompletedAt = &now
 
 			assert.NoError(UpdateDeployment(context.Background(), ts.Tx(), &d))
 
@@ -64,6 +66,7 @@ func (ts *StorageTestSuite) TestDeployment() {
 			assert.True(dGet.FragStatusCompletedAt.Equal(now))
 			assert.True(dGet.FragSessionMissingCompletedAt.Equal(now))
 			assert.True(dGet.RetransmitsCompletedAt.Equal(now))
+			assert.True(dGet.RestartCompletedAt.Equal(now))
 		})
 	})
 }

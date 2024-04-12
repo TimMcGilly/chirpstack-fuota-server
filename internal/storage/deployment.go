@@ -22,6 +22,7 @@ type Deployment struct {
 	FragStatusCompletedAt         *time.Time `db:"frag_status_completed_at"`
 	FragSessionMissingCompletedAt *time.Time `db:"frag_session_missing_completed_at"`
 	RetransmitsCompletedAt        *time.Time `db:"retransmits_completed_at"`
+	RestartCompletedAt            *time.Time `db:"restart_completed_at"`
 }
 
 // CreateDeployment creates the given Deployment.
@@ -50,8 +51,9 @@ func CreateDeployment(ctx context.Context, db sqlx.Execer, d *Deployment) error 
 			enqueue_completed_at,
 			frag_status_completed_at,
 			frag_session_missing_completed_at,
-			retransmits_completed_at
-		) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+			retransmits_completed_at,
+			restart_completed_at
+		) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		d.ID,
 		d.CreatedAt,
 		d.UpdatedAt,
@@ -62,6 +64,7 @@ func CreateDeployment(ctx context.Context, db sqlx.Execer, d *Deployment) error 
 		d.FragStatusCompletedAt,
 		d.FragSessionMissingCompletedAt,
 		d.RetransmitsCompletedAt,
+		d.RestartCompletedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("sql exec error: %w", err)
@@ -98,7 +101,8 @@ func UpdateDeployment(ctx context.Context, db sqlx.Execer, d *Deployment) error 
 			enqueue_completed_at = $6,
 			frag_status_completed_at = $7,
 			frag_session_missing_completed_at = $8,
-			retransmits_completed_at = $9
+			retransmits_completed_at = $9,
+			restart_completed_at = $10
 		where
 			id = $1`,
 		d.ID,
@@ -110,6 +114,7 @@ func UpdateDeployment(ctx context.Context, db sqlx.Execer, d *Deployment) error 
 		d.FragStatusCompletedAt,
 		d.FragSessionMissingCompletedAt,
 		d.RetransmitsCompletedAt,
+		d.RestartCompletedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("sql update error: %w", err)

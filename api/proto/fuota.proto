@@ -211,6 +211,13 @@ message DeploymentDeviceStatus {
 
   // Fragmentation status completed at.
   google.protobuf.Timestamp frag_status_completed_at = 7;
+
+  // All missing ans recieved at.
+  google.protobuf.Timestamp all_missing_ans_received = 8;
+
+  // String represnetation of list of missing indicies
+  string missing_indices = 9;
+
 }
 
 message GetDeploymentStatusResponse {
@@ -234,6 +241,12 @@ message GetDeploymentStatusResponse {
 
   // Fragmentation status completed at.
   google.protobuf.Timestamp frag_status_completed_at = 7;
+
+  // Fragmentation Missing completed at.
+  google.protobuf.Timestamp frag_session_missing_completed_at = 9;
+
+  // Retransmits completed at.
+  google.protobuf.Timestamp retransmits_completed_at = 10;
 
   // Per device status.
   repeated DeploymentDeviceStatus device_status = 8;

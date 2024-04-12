@@ -152,6 +152,20 @@ func (a *FUOTAServerAPI) GetDeploymentStatus(ctx context.Context, req *fapi.GetD
 		}
 	}
 
+	if d.FragSessionMissingCompletedAt != nil {
+		resp.FragSessionMissingCompletedAt, err = ptypes.TimestampProto(*d.FragSessionMissingCompletedAt)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if d.RetransmitsCompletedAt != nil {
+		resp.RetransmitsCompletedAt, err = ptypes.TimestampProto(*d.RetransmitsCompletedAt)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	devices, err := storage.GetDeploymentDevices(ctx, storage.DB(), id)
 	if err != nil {
 		return nil, err
@@ -196,6 +210,20 @@ func (a *FUOTAServerAPI) GetDeploymentStatus(ctx context.Context, req *fapi.GetD
 
 		if device.FragStatusCompletedAt != nil {
 			dd.FragStatusCompletedAt, err = ptypes.TimestampProto(*device.FragStatusCompletedAt)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if device.AllMissingAnsReceived != nil {
+			dd.AllMissingAnsReceived, err = ptypes.TimestampProto(*device.AllMissingAnsReceived)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if device.FragStatusCompletedAt != nil {
+			dd.MissingIndices = device.MissingIndices
 			if err != nil {
 				return nil, err
 			}

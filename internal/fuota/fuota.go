@@ -30,9 +30,6 @@ import (
 	"github.com/chirpstack/chirpstack/api/go/v4/integration"
 )
 
-// Time between missing ans messages
-const TimeBetweenMissingAns = time.Duration(4 * float64(time.Second))
-
 // FragmentationSessionStatusRequestType type.
 type FragmentationSessionStatusRequestType string
 
@@ -140,6 +137,10 @@ type DeploymentOptions struct {
 	// The number of attempts before considering an unicast command
 	// to be failed.
 	UnicastAttemptCount int
+
+	// TimeBetweenMissingAns
+	// Time between missingAns uplinks
+	TimeBetweenMissingAns time.Duration
 
 	// FragSize defines the max size for each payload fragment.
 	FragSize int
@@ -1648,7 +1649,7 @@ func (d *Deployment) stepFragMissingReq(ctx context.Context) error {
 	}
 
 	blockDelay := math.Pow(2, float64(d.opts.BlockAckDelay+4))
-	delay := time.Duration(blockDelay*float64(time.Second)) + TimeBetweenMissingAns
+	delay := time.Duration(blockDelay*float64(time.Second)) + d.opts.TimeBetweenMissingAns
 	log.WithFields(log.Fields{
 		"deployment_id": d.GetID(),
 		"sleep_time":    delay,
@@ -1670,7 +1671,7 @@ func (d *Deployment) stepFragMissingReq(ctx context.Context) error {
 		}
 	}
 
-	missingAnsTimeout := TimeBetweenMissingAns * time.Duration(maxNumMissingAns-1)
+	missingAnsTimeout := d.opts.TimeBetweenMissingAns * time.Duration(maxNumMissingAns-1)
 	log.WithFields(log.Fields{
 		"deployment_id": d.GetID(),
 		"sleep_time":    missingAnsTimeout,

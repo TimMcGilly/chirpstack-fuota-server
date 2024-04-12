@@ -146,6 +146,10 @@ message Deployment {
   // to be failed.
   uint32 unicast_attempt_count = 10;
 
+  // TimeBetweenMissingAns.
+  // Set this to the same value as on end device for time between missingAns uplinks.
+  google.protobuf.Duration time_between_missing_ans = 20;
+
   // FragmentationFragmentSize.
   // This defines the size of each payload fragment. Please refer to the
   // Regional Parameters specification for the maximum payload sizes
@@ -218,6 +222,8 @@ message DeploymentDeviceStatus {
   // String represnetation of list of missing indicies
   string missing_indices = 9;
 
+  // Restarts completed at.
+  google.protobuf.Timestamp restart_completed_at = 10;
 }
 
 message GetDeploymentStatusResponse {
@@ -247,6 +253,9 @@ message GetDeploymentStatusResponse {
 
   // Retransmits completed at.
   google.protobuf.Timestamp retransmits_completed_at = 10;
+
+  // Restarts completed at.
+  google.protobuf.Timestamp restart_completed_at = 11;
 
   // Per device status.
   repeated DeploymentDeviceStatus device_status = 8;

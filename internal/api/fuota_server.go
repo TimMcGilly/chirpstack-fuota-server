@@ -77,6 +77,13 @@ func (a *FUOTAServerAPI) CreateDeployment(ctx context.Context, req *fapi.CreateD
 
 	opts.UnicastTimeout = unicastTimeout
 
+	timeBetweenMissingAns, err := ptypes.Duration(req.GetDeployment().TimeBetweenMissingAns)
+	if err != nil {
+		return nil, err
+	}
+
+	opts.TimeBetweenMissingAns = timeBetweenMissingAns
+
 	depl, err := fuota.NewDeployment(opts)
 	if err != nil {
 		return nil, err
@@ -166,6 +173,13 @@ func (a *FUOTAServerAPI) GetDeploymentStatus(ctx context.Context, req *fapi.GetD
 		}
 	}
 
+	if d.RestartCompletedAt != nil {
+		resp.RestartCompletedAt, err = ptypes.TimestampProto(*d.RestartCompletedAt)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	devices, err := storage.GetDeploymentDevices(ctx, storage.DB(), id)
 	if err != nil {
 		return nil, err
@@ -224,6 +238,13 @@ func (a *FUOTAServerAPI) GetDeploymentStatus(ctx context.Context, req *fapi.GetD
 
 		if device.FragStatusCompletedAt != nil {
 			dd.MissingIndices = device.MissingIndices
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if device.RestartCompletedAt != nil {
+			dd.RestartCompletedAt, err = ptypes.TimestampProto(*device.RestartCompletedAt)
 			if err != nil {
 				return nil, err
 			}

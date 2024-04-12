@@ -691,6 +691,13 @@ func (d *Deployment) handleMcClassBSessionAns(ctx context.Context, devEUI lorawa
 }
 
 func (d *Deployment) handleMcClassCSessionAns(ctx context.Context, devEUI lorawan.EUI64, pl *multicastsetup.McClassCSessionAnsPayload) error {
+	var timeToStartString string
+	if pl.TimeToStart != nil {
+		timeToStartString = fmt.Sprintf("%d", pl.TimeToStart)
+	} else {
+		timeToStartString = "Time To Start not set as error"
+	}
+
 	log.WithFields(log.Fields{
 		"deployment_id":      d.GetID(),
 		"dev_eui":            devEUI,
@@ -698,6 +705,7 @@ func (d *Deployment) handleMcClassCSessionAns(ctx context.Context, devEUI lorawa
 		"freq_error":         pl.StatusAndMcGroupID.FreqError,
 		"dr_error":           pl.StatusAndMcGroupID.DRError,
 		"mc_group_id":        pl.StatusAndMcGroupID.McGroupID,
+		"time_to_start":      timeToStartString,
 	}).Info("fuota: McClassCSessionAns received")
 
 	dl := storage.DeploymentLog{
@@ -711,6 +719,7 @@ func (d *Deployment) handleMcClassCSessionAns(ctx context.Context, devEUI lorawa
 				"freq_error":         sql.NullString{Valid: true, String: fmt.Sprintf("%t", pl.StatusAndMcGroupID.FreqError)},
 				"dr_error":           sql.NullString{Valid: true, String: fmt.Sprintf("%t", pl.StatusAndMcGroupID.DRError)},
 				"mc_group_id":        sql.NullString{Valid: true, String: fmt.Sprintf("%d", pl.StatusAndMcGroupID.McGroupID)},
+				"time_to_start":      sql.NullString{Valid: true, String: timeToStartString},
 			},
 		},
 	}

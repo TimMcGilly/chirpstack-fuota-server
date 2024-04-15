@@ -1082,6 +1082,10 @@ devLoop:
 		}
 
 		for devEUI := range d.opts.Devices {
+			if d.deviceState[devEUI].getRestartCountdownAns() {
+				continue
+			}
+
 			log.WithFields(log.Fields{
 				"deployment_id": d.GetID(),
 				"dev_eui":       devEUI,

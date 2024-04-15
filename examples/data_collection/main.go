@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	deploymentId := "02fa88a3-3391-44a6-8633-c9eb71849d27"
+	deploymentId := "339a0021-595a-4521-8146-e3f28c44d1ff"
 
 	dialOpts := []grpc.DialOption{
 		grpc.WithBlock(),
@@ -43,7 +43,7 @@ func main() {
 	deploymentLogJson := "{"
 
 	for _, deviceStatus := range deploymentStatusResp.GetDeviceStatus() {
-		deploymentLogJson += `"` + deploymentId + `": `
+		deploymentLogJson += `"` + deviceStatus.GetDevEui() + `": `
 		deploymentLog, err := client.GetDeploymentDeviceLogs(context.Background(), &fuota.GetDeploymentDeviceLogsRequest{
 			DeploymentId: deploymentId,
 			DevEui:       deviceStatus.GetDevEui(),

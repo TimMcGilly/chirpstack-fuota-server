@@ -361,7 +361,7 @@ func (d *Deployment) Run(ctx context.Context) error {
 		d.stepFragSessionStatus,
 		d.stepWaitUntilTimeout,
 		d.stepDeleteMulticastGroup,
-		d.stepRestartDevices,
+		//d.stepRestartDevices,
 	}
 
 	for _, f := range steps {
@@ -1093,7 +1093,7 @@ devLoop:
 			}).Info("fuota: initiate restart for device")
 
 			CountdownMin := 3
-			CountdownMax := 30
+			CountdownMax := 10
 			CountdownTime := uint32(randGo.Intn(CountdownMax-CountdownMin) + CountdownMin)
 
 			cmd := firmwaremanagement.Command{
@@ -1126,7 +1126,7 @@ devLoop:
 			dl := storage.DeploymentLog{
 				DeploymentID: d.GetID(),
 				DevEUI:       devEUI,
-				FPort:        uint8(multicastsetup.DefaultFPort),
+				FPort:        uint8(firmwaremanagement.DefaultFPort),
 				Command:      "DevRebootCountdownReq",
 				Fields: hstore.Hstore{
 					Map: map[string]sql.NullString{
@@ -1652,7 +1652,7 @@ devLoop:
 func (d *Deployment) stepEnqueue(ctx context.Context) error {
 	log.WithField("deployment_id", d.GetID()).Info("fuota: starting multicast enqueue")
 
-	timeDiff := d.sessionStartTime.Sub(time.Now()) + (10 * time.Second)
+	timeDiff := d.sessionStartTime.Sub(time.Now()) + (5 * time.Second)
 	if timeDiff > 0 {
 		log.WithFields(log.Fields{
 			"deployment_id": d.GetID(),
@@ -1761,7 +1761,7 @@ func (d *Deployment) stepFragMissingReq(ctx context.Context) error {
 	// Needed as multicast message may not be scheduled for awhile
 	select {
 	case <-time.After(d.sessionEndTime.Sub(time.Now())):
-		break
+		return nil
 	case <-d.anyMissingAnsRecieved:
 		log.WithField("deployment_id", d.GetID()).Info("fuota: fragmentation-missingAns recieved first missingAns")
 		break

@@ -45,10 +45,10 @@ const (
 // FragmentationSessionMissingRequestType type.
 type FragmentationSessionMissingRequestType string
 
-// RequestFragmentationSessionStatus options.
+// FragmentationSessionMissingRequestType options.
 const (
-	RequestFragmentationSessionMissingAfterSessionTimeout FragmentationSessionMissingRequestType = "AFTER_FRAGMENT_ENQUEUE"
-	RequestFragmentationSessionMissingNoRequest           FragmentationSessionMissingRequestType = "NO_REQUEST"
+	RequestFragmentationSessionMissingBitArray FragmentationSessionMissingRequestType = "BIT_ARRAY"
+	RequestFragmentationSessionMissingList     FragmentationSessionMissingRequestType = "LIST"
 )
 
 // Deployments defines the FUOTA deployment struct.
@@ -170,6 +170,16 @@ type DeploymentOptions struct {
 	// RequestFragmentationSessionStatus defines if and when the frag-session
 	// status must be requested.
 	RequestFragmentationSessionStatus FragmentationSessionStatusRequestType
+
+	// Set whether list or bit array missing request is sent
+	RequestFragmentationSessionMissing FragmentationSessionMissingRequestType
+
+	// Should devices be restarted on completion
+	RestartDevices bool
+
+	RestartCountdownMin int
+
+	RestartCountdownMax int
 }
 
 // DeviceOptions holds the device options.
@@ -361,7 +371,7 @@ func (d *Deployment) Run(ctx context.Context) error {
 		d.stepFragSessionStatus,
 		d.stepWaitUntilTimeout,
 		d.stepDeleteMulticastGroup,
-		//d.stepRestartDevices,
+		d.stepRestartDevices,
 	}
 
 	for _, f := range steps {
@@ -469,12 +479,18 @@ func (d *Deployment) handleFragmentationSessionSetupCommand(ctx context.Context,
 			return fmt.Errorf("expected *fragmentation.FragSessionStatusAnsPayload, got: %T", cmd.Payload)
 		}
 		return d.handleFragSessionStatusAns(ctx, devEUI, pl)
-	case fragmentation.FragSessionMissingAns:
-		pl, ok := cmd.Payload.(*fragmentation.FragSessionMissingAnsPayload)
+	case fragmentation.FragSessionMissingBitAns:
+		pl, ok := cmd.Payload.(*fragmentation.FragSessionMissingBitAnsPayload)
 		if !ok {
-			return fmt.Errorf("expected *fragmentation.FragSessionMissingAnsPayload, got: %T", cmd.Payload)
+			return fmt.Errorf("expected *fragmentation.FragSessionMissingBitAnsPayload, got: %T", cmd.Payload)
 		}
-		return d.handleFragSessionMissingAns(ctx, devEUI, pl)
+		return d.handleFragSessionMissingBitAns(ctx, devEUI, pl)
+	case fragmentation.FragSessionMissingListAns:
+		pl, ok := cmd.Payload.(*fragmentation.FragSessionMissingListAnsPayload)
+		if !ok {
+			return fmt.Errorf("expected *fragmentation.FragSessionMissingListAnsPayload, got: %T", cmd.Payload)
+		}
+		return d.handleFragSessionMissingListAns(ctx, devEUI, pl)
 	}
 
 	return nil
@@ -763,9 +779,9 @@ func (d *Deployment) handleMcClassCSessionAns(ctx context.Context, devEUI lorawa
 	return nil
 }
 
-func (d *Deployment) handleFragSessionMissingAns(ctx context.Context, devEUI lorawan.EUI64, pl *fragmentation.FragSessionMissingAnsPayload) error {
+func (d *Deployment) handleFragSessionMissingBitAns(ctx context.Context, devEUI lorawan.EUI64, pl *fragmentation.FragSessionMissingBitAnsPayload) error {
 
-	// Clear done if set by another prematurley
+	// Clear done if set by another prematurely
 	select {
 	case <-d.missingAnsDone:
 		break
@@ -784,21 +800,21 @@ func (d *Deployment) handleFragSessionMissingAns(ctx context.Context, devEUI lor
 		"deployment_id":               d.GetID(),
 		"dev_eui":                     devEUI,
 		"frag_index":                  pl.MissingAnsHeader.FragIndex,
-		"bitfield_start_index":        pl.MissingAnsHeader.BitfieldStartIndex,
-		"missing_bitfield":            pl.ReceivedBitField,
+		"bitarray_start_index":        pl.MissingAnsHeader.BitArrayStartIndex,
+		"missing_bitarray":            pl.ReceivedBitArray,
 		"num_of_missing_ans_messages": pl.NumMissingAns,
-	}).Info("fuota: FragSessionMissingAns received")
+	}).Info("fuota: FragSessionMissingBitAns received")
 
 	dl := storage.DeploymentLog{
 		DeploymentID: d.GetID(),
 		DevEUI:       devEUI,
 		FPort:        fragmentation.DefaultFPort,
-		Command:      "FragSessionMissingAns",
+		Command:      "FragSessionMissingBitAns",
 		Fields: hstore.Hstore{
 			Map: map[string]sql.NullString{
 				"frag_index":           sql.NullString{Valid: true, String: fmt.Sprintf("%d", pl.MissingAnsHeader.FragIndex)},
-				"bitfield_start_index": sql.NullString{Valid: true, String: fmt.Sprintf("%d", pl.MissingAnsHeader.BitfieldStartIndex)},
-				"missing_bitfield":     sql.NullString{Valid: true, String: fmt.Sprintf("%x", pl.ReceivedBitField)},
+				"bitarray_start_index": sql.NullString{Valid: true, String: fmt.Sprintf("%d", pl.MissingAnsHeader.BitArrayStartIndex)},
+				"missing_bitarray":     sql.NullString{Valid: true, String: fmt.Sprintf("%x", pl.ReceivedBitArray)},
 			},
 		},
 	}
@@ -815,7 +831,95 @@ func (d *Deployment) handleFragSessionMissingAns(ctx context.Context, devEUI lor
 		state.setNumMissingAnsExpected(pl.NumMissingAns)
 		state.setNumMissingAnsRecieved(state.getNumMissingAnsRecieved() + 1)
 
-		newMissing := calculateMissingFragments(pl.ReceivedBitField, pl.MissingAnsHeader.BitfieldStartIndex, uint16(nbFrag))
+		newMissing := calculateMissingFragments(pl.ReceivedBitArray, pl.MissingAnsHeader.BitArrayStartIndex, uint16(nbFrag))
+		prevMissing := state.getMissingIndicies()
+		newMissing = append(prevMissing, newMissing...)
+		state.setMissingIndicies(newMissing)
+	}
+
+	// if all devices have recieved their expected number missing ans
+	done := true
+	for _, state := range d.deviceState {
+		if !state.getMulticastSessionSetup() {
+			continue
+		}
+		expected := state.getNumMissingAnsExpected()
+
+		if expected == 0 {
+			continue
+		}
+
+		if expected != state.getNumMissingAnsRecieved() {
+			done = false
+		}
+	}
+
+	if done {
+		d.missingAnsDone <- struct{}{}
+
+		dd, err := storage.GetDeploymentDevice(ctx, storage.DB(), d.GetID(), devEUI)
+		if err != nil {
+			return fmt.Errorf("get deployment device error: %w", err)
+		}
+		now := time.Now()
+		dd.AllMissingAnsReceived = &now
+		dd.MissingIndices = fmt.Sprintf("%v", d.deviceState[devEUI].getMissingIndicies())
+		if err := storage.UpdateDeploymentDevice(ctx, storage.DB(), &dd); err != nil {
+			return fmt.Errorf("update deployment device error: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (d *Deployment) handleFragSessionMissingListAns(ctx context.Context, devEUI lorawan.EUI64, pl *fragmentation.FragSessionMissingListAnsPayload) error {
+
+	// Clear done if set by another prematurely
+	select {
+	case <-d.missingAnsDone:
+		break
+	default:
+		break
+	}
+
+	// Set inital anyMissingAns to start timer
+	select {
+	case d.anyMissingAnsRecieved <- struct{}{}:
+	default:
+		break
+	}
+
+	log.WithFields(log.Fields{
+		"deployment_id":               d.GetID(),
+		"dev_eui":                     devEUI,
+		"frag_index":                  pl.MissingAnsHeader.FragIndex,
+		"missing_list":                pl.MissingList,
+		"num_of_missing_ans_messages": pl.NumMissingAns,
+	}).Info("fuota: FragSessionMissingListAns received")
+
+	dl := storage.DeploymentLog{
+		DeploymentID: d.GetID(),
+		DevEUI:       devEUI,
+		FPort:        fragmentation.DefaultFPort,
+		Command:      "FragSessionMissingListAns",
+		Fields: hstore.Hstore{
+			Map: map[string]sql.NullString{
+				"frag_index":   sql.NullString{Valid: true, String: fmt.Sprintf("%d", pl.MissingAnsHeader.FragIndex)},
+				"missing_list": sql.NullString{Valid: true, String: fmt.Sprintf("%x", pl.MissingList)},
+			},
+		},
+	}
+	if err := storage.CreateDeploymentLog(ctx, storage.DB(), &dl); err != nil {
+		log.WithError(err).Error("fuota: create deployment log error")
+	}
+
+	state, ok := d.deviceState[devEUI]
+
+	if ok {
+		state.setNumMissingAnsExpected(pl.NumMissingAns)
+		state.setNumMissingAnsRecieved(state.getNumMissingAnsRecieved() + 1)
+
+		newMissing := pl.MissingList
 		prevMissing := state.getMissingIndicies()
 		newMissing = append(prevMissing, newMissing...)
 		state.setMissingIndicies(newMissing)
@@ -1069,6 +1173,11 @@ func (d *Deployment) stepDeleteMulticastGroup(ctx context.Context) error {
 // restart all devices
 func (d *Deployment) stepRestartDevices(ctx context.Context) error {
 
+	if !d.opts.RestartDevices {
+		log.Info("Skipping restart of devices")
+		return nil
+	}
+
 	log.WithField("deployment_id", d.GetID()).Info("fuota: starting restart for all devices")
 
 	attempt := 0
@@ -1092,9 +1201,7 @@ devLoop:
 				"attempt":       attempt,
 			}).Info("fuota: initiate restart for device")
 
-			CountdownMin := 3
-			CountdownMax := 10
-			CountdownTime := uint32(randGo.Intn(CountdownMax-CountdownMin) + CountdownMin)
+			CountdownTime := uint32(randGo.Intn(d.opts.RestartCountdownMax-d.opts.RestartCountdownMin) + d.opts.RestartCountdownMin)
 
 			cmd := firmwaremanagement.Command{
 				CID: firmwaremanagement.DevRebootCountdownReq,
@@ -1692,6 +1799,9 @@ func (d *Deployment) stepEnqueue(ctx context.Context) error {
 
 	// enqueue the payloads
 	for i, b := range payloads {
+		if i == 1 || i == 3 || i == 5 || i == 7 {
+			continue
+		}
 		_, err = as.MulticastGroupClient().Enqueue(ctx, &api.EnqueueMulticastGroupQueueItemRequest{
 			QueueItem: &api.MulticastGroupQueueItem{
 				MulticastGroupId: d.multicastGroupID,
@@ -1727,14 +1837,27 @@ func (d *Deployment) stepFragMissingReq(ctx context.Context) error {
 
 	log.WithField("deployment_id", d.GetID()).Info("fuota: starting fragmentation-missing-req for devices")
 
-	cmd := fragmentation.Command{
-		CID: fragmentation.FragSessionMissingReq,
-		Payload: &fragmentation.FragSessionMissingReqPayload{
-			FragSessionMissingReqParam: fragmentation.FragSessionMissingReqPayloadFragSessionMissingReqParam{
-				Participants: true,
-				FragIndex:    d.opts.FragmentationSessionIndex,
+	var cmd fragmentation.Command
+	if false {
+		cmd = fragmentation.Command{
+			CID: fragmentation.FragSessionMissingBitReq,
+			Payload: &fragmentation.FragSessionMissingBitReqPayload{
+				FragSessionMissingReqParam: fragmentation.FragSessionMissingReqPayloadFragSessionMissingReqParam{
+					Participants: true,
+					FragIndex:    d.opts.FragmentationSessionIndex,
+				},
 			},
-		},
+		}
+	} else {
+		cmd = fragmentation.Command{
+			CID: fragmentation.FragSessionMissingListReq,
+			Payload: &fragmentation.FragSessionMissingListReqPayload{
+				FragSessionMissingReqParam: fragmentation.FragSessionMissingReqPayloadFragSessionMissingReqParam{
+					Participants: true,
+					FragIndex:    d.opts.FragmentationSessionIndex,
+				},
+			},
+		}
 	}
 
 	b, err := cmd.MarshalBinary()
@@ -2018,10 +2141,10 @@ devLoop:
 	return nil
 }
 
-func calculateMissingFragments(missingBitField []byte, offset uint16, numOfFrags uint16) []uint16 {
+func calculateMissingFragments(missingBitArray []byte, offset uint16, numOfFrags uint16) []uint16 {
 	missingIndexes := []uint16{}
 
-	for byteIndex, el := range missingBitField {
+	for byteIndex, el := range missingBitArray {
 		for i := 0; i < 8; i++ {
 			if ((el >> i) & 1) == 1 {
 				newIndex := uint16(byteIndex)*8 + uint16(i) + offset

@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	deploymentId := "339a0021-595a-4521-8146-e3f28c44d1ff"
+	deploymentId := "a53f65da-221d-45ae-a0a9-6720f0d94624"
 
 	dialOpts := []grpc.DialOption{
 		grpc.WithBlock(),

@@ -925,7 +925,7 @@ func (d *Deployment) handleFirmwareManagementRebootCountdown(ctx context.Context
 		"deployment_id": d.GetID(),
 		"dev_eui":       devEUI,
 		"countdown":     pl.Countdown,
-	}).Info("fuota: DevRebootCountdownAnsPayload received")
+	}).Info("fuota: DevRebootCountdownAns received")
 
 	dl := storage.DeploymentLog{
 		DeploymentID: d.GetID(),

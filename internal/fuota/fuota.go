@@ -1838,7 +1838,7 @@ func (d *Deployment) stepFragMissingReq(ctx context.Context) error {
 	log.WithField("deployment_id", d.GetID()).Info("fuota: starting fragmentation-missing-req for devices")
 
 	var cmd fragmentation.Command
-	if false {
+	if d.opts.RequestFragmentationSessionMissing == RequestFragmentationSessionMissingBitArray {
 		cmd = fragmentation.Command{
 			CID: fragmentation.FragSessionMissingBitReq,
 			Payload: &fragmentation.FragSessionMissingBitReqPayload{

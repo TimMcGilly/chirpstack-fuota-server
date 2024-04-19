@@ -33,7 +33,7 @@ func main() {
 		panic(err)
 	}
 
-	payloadSize := 2048
+	payloadSize := 80000
 	payload := make([]byte, payloadSize)
 	for i := 0; i < payloadSize; i++ {
 		payload[i] = byte(payloadSize + 1 - i)
@@ -50,30 +50,33 @@ func main() {
 		})
 	}
 
-	fragmentationDescriptor := []byte{34, 0, 0, 0}
-
+	fragmentationDescriptor := []byte{102, 0, 0, 0}
 	client := fuota.NewFuotaServerServiceClient(conn)
 	resp, err := client.CreateDeployment(context.Background(), &fuota.CreateDeploymentRequest{
 		Deployment: &fuota.Deployment{
-			ApplicationId:                     ApplicationId,
-			Devices:                           devices,
-			MulticastGroupType:                fuota.MulticastGroupType_CLASS_C,
-			MulticastDr:                       0,
-			MulticastFrequency:                869525000,
-			MulticastGroupId:                  0,
-			MulticastTimeout:                  11,
-			MulticastRegion:                   fuota.Region_EU868,
-			UnicastTimeout:                    ptypes.DurationProto(90 * time.Second),
-			UnicastAttemptCount:               2,
-			TimeBetweenMissingAns:             ptypes.DurationProto(4 * time.Second),
-			FragmentationFragmentSize:         48,
-			Payload:                           payload,
-			FragmentationRedundancy:           4,
-			FragmentationSessionIndex:         0,
-			FragmentationMatrix:               0,
-			FragmentationBlockAckDelay:        1,
-			FragmentationDescriptor:           fragmentationDescriptor,
-			RequestFragmentationSessionStatus: fuota.RequestFragmentationSessionStatus_AFTER_SESSION_TIMEOUT,
+			ApplicationId:                      ApplicationId,
+			Devices:                            devices,
+			MulticastGroupType:                 fuota.MulticastGroupType_CLASS_C,
+			MulticastDr:                        5,
+			MulticastFrequency:                 869525000,
+			MulticastGroupId:                   0,
+			MulticastTimeout:                   11,
+			MulticastRegion:                    fuota.Region_EU868,
+			UnicastTimeout:                     ptypes.DurationProto(90 * time.Second),
+			UnicastAttemptCount:                2,
+			TimeBetweenMissingAns:              ptypes.DurationProto(4 * time.Second),
+			FragmentationFragmentSize:          232,
+			Payload:                            payload,
+			FragmentationRedundancy:            34,
+			FragmentationSessionIndex:          0,
+			FragmentationMatrix:                0,
+			FragmentationBlockAckDelay:         1,
+			FragmentationDescriptor:            fragmentationDescriptor,
+			RequestFragmentationSessionStatus:  fuota.RequestFragmentationSessionStatus_AFTER_SESSION_TIMEOUT,
+			RequestFragmentationSessionMissing: fuota.RequestFragmentationSessionMissing_BIT_ARRAY,
+			RestartDevices:                     false,
+			RestartCountdownMin:                3,
+			RestartCountdownMax:                20,
 		},
 	})
 	if err != nil {

@@ -366,7 +366,7 @@ func (d *Deployment) Run(ctx context.Context) error {
 		d.stepMulticastClassBSessionSetup,
 		d.stepMulticastClassCSessionSetup,
 		d.stepEnqueue,
-		d.stepFragMissingReq,
+		d.stepFragMissingRequest,
 		d.stepRetransmitFragments,
 		d.stepFragSessionStatus,
 		d.stepWaitUntilTimeout,
@@ -789,7 +789,7 @@ func (d *Deployment) handleFragSessionMissingBitAns(ctx context.Context, devEUI 
 		break
 	}
 
-	// Set inital anyMissingAns to start timer
+	// Set firstMissingAnsRecieved to start timer
 	select {
 	case d.firstMissingAnsRecieved <- struct{}{}:
 	default:
@@ -1825,7 +1825,7 @@ func (d *Deployment) stepEnqueue(ctx context.Context) error {
 	return nil
 }
 
-func (d *Deployment) stepFragMissingReq(ctx context.Context) error {
+func (d *Deployment) stepFragMissingRequest(ctx context.Context) error {
 	timeDiff := d.sessionStartTime.Sub(time.Now()) + (10 * time.Second)
 	if timeDiff > 0 {
 		log.WithFields(log.Fields{

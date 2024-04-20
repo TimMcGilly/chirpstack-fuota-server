@@ -81,7 +81,7 @@ type Deployment struct {
 	fragmentationSessionStatusDone chan struct{}
 
 	// channel set when any missingAns is recieved
-	anyMissingAnsRecieved chan struct{}
+	firstMissingAnsRecieved chan struct{}
 
 	// channel for all missing-ans recieved
 	missingAnsDone chan struct{}
@@ -316,7 +316,7 @@ func NewDeployment(opts DeploymentOptions) (*Deployment, error) {
 		multicastSessionSetupDone:      make(chan struct{}),
 		fragmentationSessionStatusDone: make(chan struct{}),
 		missingAnsDone:                 make(chan struct{}),
-		anyMissingAnsRecieved:          make(chan struct{}),
+		firstMissingAnsRecieved:        make(chan struct{}),
 		firmwareRestartDone:            make(chan struct{}),
 	}
 
@@ -791,7 +791,7 @@ func (d *Deployment) handleFragSessionMissingBitAns(ctx context.Context, devEUI 
 
 	// Set inital anyMissingAns to start timer
 	select {
-	case d.anyMissingAnsRecieved <- struct{}{}:
+	case d.firstMissingAnsRecieved <- struct{}{}:
 	default:
 		break
 	}
@@ -884,7 +884,7 @@ func (d *Deployment) handleFragSessionMissingListAns(ctx context.Context, devEUI
 
 	// Set inital anyMissingAns to start timer
 	select {
-	case d.anyMissingAnsRecieved <- struct{}{}:
+	case d.firstMissingAnsRecieved <- struct{}{}:
 	default:
 		break
 	}
@@ -1885,7 +1885,7 @@ func (d *Deployment) stepFragMissingReq(ctx context.Context) error {
 	select {
 	case <-time.After(d.sessionEndTime.Sub(time.Now())):
 		return nil
-	case <-d.anyMissingAnsRecieved:
+	case <-d.firstMissingAnsRecieved:
 		log.WithField("deployment_id", d.GetID()).Info("fuota: fragmentation-missingAns recieved first missingAns")
 		break
 	}

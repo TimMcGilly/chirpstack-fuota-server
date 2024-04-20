@@ -837,7 +837,7 @@ func (d *Deployment) handleFragSessionMissingBitAns(ctx context.Context, devEUI 
 		state.setMissingIndicies(newMissing)
 	}
 
-	// if all devices have recieved their expected number missing ans
+	// if all devices have received their expected number missing ans
 	done := true
 	for _, state := range d.deviceState {
 		if !state.getMulticastSessionSetup() {
@@ -882,7 +882,7 @@ func (d *Deployment) handleFragSessionMissingListAns(ctx context.Context, devEUI
 		break
 	}
 
-	// Set inital anyMissingAns to start timer
+	// Set firstMissingAnsRecieved to start timer
 	select {
 	case d.firstMissingAnsRecieved <- struct{}{}:
 	default:
@@ -1881,12 +1881,12 @@ func (d *Deployment) stepFragMissingRequest(ctx context.Context) error {
 		return fmt.Errorf("fuota: enqueue payload errorr: %w", err)
 	}
 
-	// Needed as multicast message may not be scheduled for awhile
+	// Needed as multicast message may not be scheduled for a while
 	select {
 	case <-time.After(d.sessionEndTime.Sub(time.Now())):
 		return nil
 	case <-d.firstMissingAnsRecieved:
-		log.WithField("deployment_id", d.GetID()).Info("fuota: fragmentation-missingAns recieved first missingAns")
+		log.WithField("deployment_id", d.GetID()).Info("fuota: first FragSessionMissingAns received")
 		break
 	}
 
@@ -1895,7 +1895,7 @@ func (d *Deployment) stepFragMissingRequest(ctx context.Context) error {
 	log.WithFields(log.Fields{
 		"deployment_id": d.GetID(),
 		"sleep_time":    delay,
-	}).Info("fuota: missing ans first sleep")
+	}).Info("fuota: Sleep for inital FragSessionMissingAns from all devices depedant on random jitter")
 	time.Sleep(delay)
 
 	maxNumMissingAns := uint8(1)

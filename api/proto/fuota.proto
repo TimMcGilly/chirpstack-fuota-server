@@ -96,11 +96,6 @@ enum RequestFragmentationSessionStatus {
   NO_REQUEST = 2;
 }
 
-enum RequestFragmentationSessionMissing {
-  BIT_ARRAY = 0;
-  LIST = 1;
-}
-
 message DeploymentDevice {
   // DevEUI.
   string dev_eui = 1;
@@ -183,7 +178,7 @@ message Deployment {
   // Request fragmentation session status.
   RequestFragmentationSessionStatus request_fragmentation_session_status = 18;
 
-  RequestFragmentationSessionMissing request_fragmentation_session_missing = 21;
+  bool request_fragmentation_session_missing = 21;
 
   bool restart_devices = 22;
 

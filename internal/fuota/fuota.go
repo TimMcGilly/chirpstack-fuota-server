@@ -42,15 +42,6 @@ const (
 	RequestFragmentationSessionStatusNoRequest                   FragmentationSessionStatusRequestType = "NO_REQUEST"
 )
 
-// FragmentationSessionMissingRequestType type.
-type FragmentationSessionMissingRequestType string
-
-// FragmentationSessionMissingRequestType options.
-const (
-	RequestFragmentationSessionMissingBitArray FragmentationSessionMissingRequestType = "BIT_ARRAY"
-	RequestFragmentationSessionMissingList     FragmentationSessionMissingRequestType = "LIST"
-)
-
 // Deployments defines the FUOTA deployment struct.
 type Deployment struct {
 	opts DeploymentOptions
@@ -171,8 +162,8 @@ type DeploymentOptions struct {
 	// status must be requested.
 	RequestFragmentationSessionStatus FragmentationSessionStatusRequestType
 
-	// Set whether list or bit array missing request is sent
-	RequestFragmentationSessionMissing FragmentationSessionMissingRequestType
+	// Set whether missing request is sent
+	RequestFragmentationSessionMissing bool
 
 	// Should devices be restarted on completion
 	RestartDevices bool
@@ -1799,9 +1790,6 @@ func (d *Deployment) stepEnqueue(ctx context.Context) error {
 
 	// enqueue the payloads
 	for i, b := range payloads {
-		if i == 1 || i == 3 || i == 5 || i == 7 {
-			continue
-		}
 		_, err = as.MulticastGroupClient().Enqueue(ctx, &api.EnqueueMulticastGroupQueueItemRequest{
 			QueueItem: &api.MulticastGroupQueueItem{
 				MulticastGroupId: d.multicastGroupID,
@@ -1838,26 +1826,14 @@ func (d *Deployment) stepFragMissingRequest(ctx context.Context) error {
 	log.WithField("deployment_id", d.GetID()).Info("fuota: starting fragmentation-missing-req for devices")
 
 	var cmd fragmentation.Command
-	if d.opts.RequestFragmentationSessionMissing == RequestFragmentationSessionMissingBitArray {
-		cmd = fragmentation.Command{
-			CID: fragmentation.FragSessionMissingBitReq,
-			Payload: &fragmentation.FragSessionMissingBitReqPayload{
-				FragSessionMissingReqParam: fragmentation.FragSessionMissingReqPayloadFragSessionMissingReqParam{
-					Participants: true,
-					FragIndex:    d.opts.FragmentationSessionIndex,
-				},
+	cmd = fragmentation.Command{
+		CID: fragmentation.FragSessionMissingReq,
+		Payload: &fragmentation.FragSessionMissingReqPayload{
+			FragSessionMissingReqParam: fragmentation.FragSessionMissingReqPayloadFragSessionMissingReqParam{
+				Participants: true,
+				FragIndex:    d.opts.FragmentationSessionIndex,
 			},
-		}
-	} else {
-		cmd = fragmentation.Command{
-			CID: fragmentation.FragSessionMissingListReq,
-			Payload: &fragmentation.FragSessionMissingListReqPayload{
-				FragSessionMissingReqParam: fragmentation.FragSessionMissingReqPayloadFragSessionMissingReqParam{
-					Participants: true,
-					FragIndex:    d.opts.FragmentationSessionIndex,
-				},
-			},
-		}
+		},
 	}
 
 	b, err := cmd.MarshalBinary()
@@ -1943,21 +1919,38 @@ func (d *Deployment) stepFragMissingRequest(ctx context.Context) error {
 func (d *Deployment) stepRetransmitFragments(ctx context.Context) error {
 	log.WithField("deployment_id", d.GetID()).Info("fuota: starting retransmits")
 
-	missingIndicesSet := map[uint16]struct{}{}
+	type piorityFactors struct {
+		count                       int
+		minDeviceNumMissingIndicies int
+	}
+
+	missingIndicesSet := make(map[uint16]piorityFactors)
 
 	// merge missing indicies
 	for devEUI := range d.opts.Devices {
-		for _, missingIndex := range d.deviceState[devEUI].getMissingIndicies() {
-			missingIndicesSet[missingIndex] = struct{}{}
+		deviceMissingIndicies := d.deviceState[devEUI].getMissingIndicies()
+		for _, missingIndex := range deviceMissingIndicies {
+			if v, ok := missingIndicesSet[missingIndex]; ok {
+				newMin := min(v.minDeviceNumMissingIndicies, len(deviceMissingIndicies))
+				missingIndicesSet[missingIndex] = piorityFactors{v.count + 1, newMin}
+			} else {
+				missingIndicesSet[missingIndex] = piorityFactors{1, len(deviceMissingIndicies)}
+			}
 		}
 	}
 
 	missingIndicies := []uint16{}
-	for missingIndex, _ := range missingIndicesSet {
+	for missingIndex := range missingIndicesSet {
 		missingIndicies = append(missingIndicies, missingIndex)
 	}
 
-	sort.Slice(missingIndicies, func(i, j int) bool { return missingIndicies[i] < missingIndicies[j] })
+	sort.Slice(missingIndicies, func(i, j int) bool {
+		if missingIndicesSet[missingIndicies[i]].count == missingIndicesSet[missingIndicies[j]].count {
+			return missingIndicesSet[missingIndicies[i]].minDeviceNumMissingIndicies < missingIndicesSet[missingIndicies[j]].minDeviceNumMissingIndicies
+		}
+
+		return missingIndicesSet[missingIndicies[i]].count > missingIndicesSet[missingIndicies[j]].count
+	})
 
 	// fragment the payload
 	padding := (d.opts.FragSize - (len(d.opts.Payload) % d.opts.FragSize)) % d.opts.FragSize
@@ -1985,7 +1978,11 @@ func (d *Deployment) stepRetransmitFragments(ctx context.Context) error {
 			return fmt.Errorf("marshal binary error: %w", err)
 		}
 
-		log.WithField("N", uint16(missingIndex+1)).Info("fuota: retransmit packet created")
+		log.WithFields(log.Fields{
+			"N":                           uint16(missingIndex + 1),
+			"count":                       missingIndicesSet[missingIndex].count,
+			"minDeviceNumMissingIndicies": missingIndicesSet[missingIndex].minDeviceNumMissingIndicies,
+		}).Info("fuota: retransmit packet created")
 
 		payloads = append(payloads, b)
 	}
@@ -2157,4 +2154,11 @@ func calculateMissingFragments(missingBitArray []byte, offset uint16, numOfFrags
 	}
 
 	return missingIndexes
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

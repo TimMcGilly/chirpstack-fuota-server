@@ -43,7 +43,7 @@ func (a *FUOTAServerAPI) CreateDeployment(ctx context.Context, req *fapi.CreateD
 		BlockAckDelay:                      uint8(req.GetDeployment().FragmentationBlockAckDelay),
 		UnicastAttemptCount:                int(req.GetDeployment().UnicastAttemptCount),
 		RequestFragmentationSessionStatus:  fuota.FragmentationSessionStatusRequestType(req.GetDeployment().RequestFragmentationSessionStatus.String()),
-		RequestFragmentationSessionMissing: fuota.FragmentationSessionMissingRequestType(req.GetDeployment().RequestFragmentationSessionMissing.String()),
+		RequestFragmentationSessionMissing: bool(req.GetDeployment().RequestFragmentationSessionMissing),
 		RestartDevices:                     bool(req.GetDeployment().RestartDevices),
 		RestartCountdownMin:                int(req.GetDeployment().RestartCountdownMin),
 		RestartCountdownMax:                int(req.GetDeployment().RestartCountdownMax),

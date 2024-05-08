@@ -1924,32 +1924,33 @@ func (d *Deployment) stepRetransmitFragments(ctx context.Context) error {
 		minDeviceNumMissingIndicies int
 	}
 
-	missingIndicesSet := make(map[uint16]piorityFactors)
+	missingIndicesMap := make(map[uint16]piorityFactors)
 
 	// merge missing indicies
 	for devEUI := range d.opts.Devices {
 		deviceMissingIndicies := d.deviceState[devEUI].getMissingIndicies()
 		for _, missingIndex := range deviceMissingIndicies {
-			if v, ok := missingIndicesSet[missingIndex]; ok {
+			if v, ok := missingIndicesMap[missingIndex]; ok {
 				newMin := min(v.minDeviceNumMissingIndicies, len(deviceMissingIndicies))
-				missingIndicesSet[missingIndex] = piorityFactors{v.count + 1, newMin}
+				missingIndicesMap[missingIndex] = piorityFactors{v.count + 1, newMin}
 			} else {
-				missingIndicesSet[missingIndex] = piorityFactors{1, len(deviceMissingIndicies)}
+				missingIndicesMap[missingIndex] = piorityFactors{1, len(deviceMissingIndicies)}
 			}
 		}
 	}
 
-	missingIndicies := []uint16{}
-	for missingIndex := range missingIndicesSet {
-		missingIndicies = append(missingIndicies, missingIndex)
+	missingIndicies := make([]uint16, 0, len(missingIndicesMap))
+	i:=0
+	for missingIndex := range missingIndicesMap {
+		missingIndicies[i] = missingIndex
+		i++
 	}
 
 	sort.Slice(missingIndicies, func(i, j int) bool {
-		if missingIndicesSet[missingIndicies[i]].count == missingIndicesSet[missingIndicies[j]].count {
-			return missingIndicesSet[missingIndicies[i]].minDeviceNumMissingIndicies < missingIndicesSet[missingIndicies[j]].minDeviceNumMissingIndicies
+		if missingIndicesMap[missingIndicies[i]].minDeviceNumMissingIndicies == missingIndicesMap[missingIndicies[j]].minDeviceNumMissingIndicies {
+			return missingIndicesMap[missingIndicies[i]].count > missingIndicesMap[missingIndicies[j]].count
 		}
-
-		return missingIndicesSet[missingIndicies[i]].count > missingIndicesSet[missingIndicies[j]].count
+		return missingIndicesMap[missingIndicies[i]].minDeviceNumMissingIndicies < missingIndicesMap[missingIndicies[j]].minDeviceNumMissingIndicies
 	})
 
 	// fragment the payload
@@ -1980,8 +1981,8 @@ func (d *Deployment) stepRetransmitFragments(ctx context.Context) error {
 
 		log.WithFields(log.Fields{
 			"N":                           uint16(missingIndex + 1),
-			"count":                       missingIndicesSet[missingIndex].count,
-			"minDeviceNumMissingIndicies": missingIndicesSet[missingIndex].minDeviceNumMissingIndicies,
+			"count":                       missingIndicesMap[missingIndex].count,
+			"minDeviceNumMissingIndicies": missingIndicesMap[missingIndex].minDeviceNumMissingIndicies,
 		}).Info("fuota: retransmit packet created")
 
 		payloads = append(payloads, b)

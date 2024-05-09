@@ -1919,12 +1919,12 @@ func (d *Deployment) stepFragMissingRequest(ctx context.Context) error {
 func (d *Deployment) stepRetransmitFragments(ctx context.Context) error {
 	log.WithField("deployment_id", d.GetID()).Info("fuota: starting retransmits")
 
-	type piorityFactors struct {
+	type priorityFactors struct {
 		count                       int
 		minDeviceNumMissingIndicies int
 	}
 
-	missingIndicesMap := make(map[uint16]piorityFactors)
+	missingIndicesMap := make(map[uint16]priorityFactors)
 
 	// merge missing indicies
 	for devEUI := range d.opts.Devices {
@@ -1932,9 +1932,9 @@ func (d *Deployment) stepRetransmitFragments(ctx context.Context) error {
 		for _, missingIndex := range deviceMissingIndicies {
 			if v, ok := missingIndicesMap[missingIndex]; ok {
 				newMin := min(v.minDeviceNumMissingIndicies, len(deviceMissingIndicies))
-				missingIndicesMap[missingIndex] = piorityFactors{v.count + 1, newMin}
+				missingIndicesMap[missingIndex] = priorityFactors{v.count + 1, newMin}
 			} else {
-				missingIndicesMap[missingIndex] = piorityFactors{1, len(deviceMissingIndicies)}
+				missingIndicesMap[missingIndex] = priorityFactors{1, len(deviceMissingIndicies)}
 			}
 		}
 	}
